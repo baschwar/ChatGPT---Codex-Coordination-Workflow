@@ -40,7 +40,7 @@ export interface TaskPickupInput {
   hasCodingCorrectionRequest?: boolean;
 }
 
-export type TaskPickupAction = "claim-and-branch" | "resume-open-pr" | "wait";
+export type TaskPickupAction = "claim-and-branch" | "resume-open-pr" | "resume-correction" | "wait";
 
 export interface TaskPickupDecision {
   action: TaskPickupAction;
@@ -93,7 +93,7 @@ export function decideTaskPickup(input: TaskPickupInput, labels: TaskWorkflowLab
   if (issueLabels.has(labels.manual_validation)) {
     if (input.hasCodingCorrectionRequest) {
       return openPullRequest
-        ? { action: "resume-open-pr", reason: "manual-validation-coding-correction", pullRequest: openPullRequest }
+        ? { action: "resume-correction", reason: "manual-validation-coding-correction", pullRequest: openPullRequest }
         : { action: "claim-and-branch", reason: "manual-validation-coding-correction" };
     }
 
