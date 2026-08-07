@@ -4,8 +4,8 @@ import { githubDryRun } from "./github-dry-run.js";
 import type { GithubDryRunOptions } from "./github-dry-run.js";
 import { getProjectContext } from "./project-context.js";
 import { previewDirective } from "./preview-directive.js";
-import { runFixtureWatch } from "./watch-runner.js";
-import type { WatchOptions } from "./watch-runner.js";
+import { runFixtureWatch, runGithubWatch } from "./watch-runner.js";
+import type { FixtureWatchOptions, GithubWatchOptions } from "./watch-runner.js";
 
 export type CliCommand = "get-project-context" | "preview-directive" | "dry-run" | "run";
 
@@ -84,37 +84,57 @@ async function main(args: string[]): Promise<void> {
 
   if (command === "run") {
     if (!rest.includes("--watch")) {
-      throw new Error("Usage: run --watch --fixture <path> [--max-cycles <count>] [--interval-ms <ms>]");
+      throw new Error(
+        "Usage: run --watch (--repo <owner/repo> [--issue <number>] | --fixture <path>) [--state-file <path>] [--max-cycles <count>] [--interval-ms <ms>]"
+      );
     }
 
     const fixture = readOption(rest, "--fixture");
+    const repository = readOption(rest, "--repo");
+    const issue = readOption(rest, "--issue");
     const repoRoot = readOption(rest, "--repo-root") ?? process.cwd();
     const maxCycles = readOption(rest, "--max-cycles");
     const intervalMs = readOption(rest, "--interval-ms");
     const npfPauseThreshold = readOption(rest, "--npf-threshold");
+    const stateFile = readOption(rest, "--state-file");
 
-    if (!fixture) {
-      throw new Error("Usage: run --watch --fixture <path> [--max-cycles <count>] [--interval-ms <ms>]");
+    if (!fixture && !repository) {
+      throw new Error(
+        "Usage: run --watch (--repo <owner/repo> [--issue <number>] | --fixture <path>) [--state-file <path>] [--max-cycles <count>] [--interval-ms <ms>]"
+      );
     }
 
-    const options: WatchOptions = { repoRoot, fixturePath: path.resolve(fixture) };
+    if (fixture && repository) {
+      throw new Error("Choose either --repo for live GitHub watch or --fixture for fixture replay, not both");
+    }
+
+    const sharedOptions: Pick<FixtureWatchOptions, "maxCycles" | "intervalMs" | "npfPauseThreshold" | "stateFilePath"> = {};
     if (maxCycles) {
-      options.maxCycles = Number.parseInt(maxCycles, 10);
+      sharedOptions.maxCycles = Number.parseInt(maxCycles, 10);
     }
     if (intervalMs) {
-      options.intervalMs = Number.parseInt(intervalMs, 10);
+      sharedOptions.intervalMs = Number.parseInt(intervalMs, 10);
     }
     if (npfPauseThreshold) {
-      options.npfPauseThreshold = Number.parseInt(npfPauseThreshold, 10);
+      sharedOptions.npfPauseThreshold = Number.parseInt(npfPauseThreshold, 10);
+    }
+    if (stateFile) {
+      sharedOptions.stateFilePath = path.resolve(stateFile);
     }
 
-    console.log(
-      JSON.stringify(
-        await runFixtureWatch(options),
-        null,
-        2
-      )
-    );
+    if (fixture) {
+      const options: FixtureWatchOptions = { repoRoot, fixturePath: path.resolve(fixture), ...sharedOptions };
+
+      console.log(JSON.stringify(await runFixtureWatch(options), null, 2));
+      return;
+    }
+
+    const options: GithubWatchOptions = { repoRoot, repository: repository as string, ...sharedOptions };
+    if (issue) {
+      options.issueNumber = Number.parseInt(issue, 10);
+    }
+
+    console.log(JSON.stringify(await runGithubWatch(options), null, 2));
     return;
   }
 

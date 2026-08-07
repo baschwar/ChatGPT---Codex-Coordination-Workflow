@@ -2,7 +2,7 @@
 
 Reusable coordination layer for human-approved implementation work routed through GitHub.
 
-This project is in the Beta 1 scaffold phase. The current implementation provides repository-neutral decision logic, fixture simulation, read-only GitHub dry-run inspection, and a bounded dry-run watch runner before enabling GitHub mutations.
+This project is in the Beta 1 scaffold phase. The current implementation provides repository-neutral decision logic, fixture simulation, read-only GitHub dry-run inspection, and a bounded live watch runner before enabling GitHub mutations.
 
 ## Purpose
 
@@ -28,6 +28,7 @@ Approved implementation directives become structured GitHub issues. Implementati
 ```sh
 npm test
 npm run coordinator -- dry-run --repo baschwar/ChatGPT---Codex-Coordination-Workflow --issue 1
+npm run coordinator -- run --watch --repo baschwar/ChatGPT---Codex-Coordination-Workflow --issue 1 --state-file /tmp/chatgpt-coordinator-live-watch-state.json --interval-ms 1000 --max-cycles 1
 npm run coordinator -- run --watch --fixture tests/fixtures/watch-session.json --interval-ms 1000 --max-cycles 8
 ```
 

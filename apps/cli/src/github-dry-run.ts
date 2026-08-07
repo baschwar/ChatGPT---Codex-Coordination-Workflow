@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import type { ExecFileException } from "node:child_process";
 import { promisify } from "node:util";
 import { loadProjectConfig } from "../../../packages/config/src/load.js";
 import { runCycle, type WorkflowIssue, type WorkflowRepositorySnapshot } from "../../../packages/core/src/session.js";
@@ -23,9 +24,49 @@ interface GhPullRequest {
   closingIssuesReferences: Array<{ number: number }>;
 }
 
+export class GithubSnapshotError extends Error {
+  readonly reason: "github-auth-required" | "github-cli-failed";
+  readonly diagnostics: string[];
+
+  constructor(reason: "github-auth-required" | "github-cli-failed", diagnostics: string[]) {
+    super(diagnostics.join("\n"));
+    this.name = "GithubSnapshotError";
+    this.reason = reason;
+    this.diagnostics = diagnostics;
+  }
+}
+
+function isExecFileException(error: unknown): error is ExecFileException & { stdout?: string; stderr?: string } {
+  return error instanceof Error && "code" in error;
+}
+
+function isAuthFailure(message: string): boolean {
+  return /auth|authentication|not logged|login|401|bad credentials/i.test(message);
+}
+
 async function ghJson(args: string[]): Promise<unknown> {
-  const { stdout } = await execFileAsync("gh", args, { maxBuffer: 1024 * 1024 * 10 });
-  return JSON.parse(stdout) as unknown;
+  try {
+    const { stdout } = await execFileAsync("gh", args, { maxBuffer: 1024 * 1024 * 10 });
+    return JSON.parse(stdout) as unknown;
+  } catch (error) {
+    const stderr = isExecFileException(error) ? error.stderr ?? "" : "";
+    const message = error instanceof Error ? error.message : String(error);
+    const detail = stderr.trim() || message;
+    const command = `gh ${args.join(" ")}`;
+
+    if (isAuthFailure(detail)) {
+      throw new GithubSnapshotError("github-auth-required", [
+        `GitHub CLI authentication is required for read-only live inspection: ${command}`,
+        "Run: gh auth login -h github.com",
+        detail
+      ]);
+    }
+
+    throw new GithubSnapshotError("github-cli-failed", [
+      `GitHub CLI command failed during read-only live inspection: ${command}`,
+      detail
+    ]);
+  }
 }
 
 function normalizePullRequestState(state: GhPullRequest["state"]): RelatedPullRequest["state"] {
@@ -57,10 +98,14 @@ export interface GithubDryRunOptions {
   consecutiveNpf?: number;
 }
 
-export async function githubDryRun(options: GithubDryRunOptions): Promise<object> {
+export interface GithubSnapshotOptions {
+  repository: string;
+  issueNumber?: number;
+}
+
+export async function createGithubSnapshot(options: GithubSnapshotOptions): Promise<WorkflowRepositorySnapshot> {
   parseRepository(options.repository);
 
-  const { config } = await loadProjectConfig(options.repoRoot);
   const labelData = (await ghJson(["label", "list", "--repo", options.repository, "--json", "name", "--limit", "200"])) as GhLabel[];
   const pullRequests = (await ghJson([
     "pr",
@@ -100,11 +145,39 @@ export async function githubDryRun(options: GithubDryRunOptions): Promise<object
     return workflowIssue;
   });
 
-  const snapshot: WorkflowRepositorySnapshot = {
+  return {
     repository: options.repository,
     issues: workflowIssues,
     repositoryLabels: labelData.map((label) => label.name)
   };
+}
+
+export async function githubDryRun(options: GithubDryRunOptions): Promise<object> {
+  const { config } = await loadProjectConfig(options.repoRoot);
+  let snapshot: WorkflowRepositorySnapshot;
+
+  try {
+    snapshot = await createGithubSnapshot(options);
+  } catch (error) {
+    if (error instanceof GithubSnapshotError) {
+      return {
+        mode: "READ ONLY / DRY RUN",
+        repository: options.repository,
+        issue: null,
+        associatedOpenPr: null,
+        selectedDecision: { action: "wait", reason: "not-in-implementation-queue" },
+        cycleOutcome: "HUMAN",
+        reason: error.reason,
+        consecutiveNpf: options.consecutiveNpf ?? 0,
+        sessionStatus: "paused",
+        diagnostics: error.diagnostics,
+        audit: null
+      };
+    }
+
+    throw error;
+  }
+
   const result = runCycle(
     snapshot,
     config.labels,
