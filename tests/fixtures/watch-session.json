@@ -1,0 +1,34 @@
+[
+  {
+    "repository": "example/repo",
+    "issues": []
+  },
+  {
+    "repository": "example/repo",
+    "issues": [{ "number": 1, "title": "Ready task", "labels": ["codex-ready"] }]
+  },
+  {
+    "repository": "example/repo",
+    "issues": []
+  },
+  {
+    "repository": "example/repo",
+    "issues": []
+  },
+  {
+    "repository": "example/repo",
+    "issues": []
+  },
+  {
+    "repository": "example/repo",
+    "issues": []
+  },
+  {
+    "repository": "example/repo",
+    "issues": []
+  },
+  {
+    "repository": "example/repo",
+    "issues": []
+  }
+]
