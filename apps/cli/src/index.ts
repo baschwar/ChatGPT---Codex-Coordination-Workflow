@@ -85,7 +85,7 @@ async function main(args: string[]): Promise<void> {
   if (command === "run") {
     if (!rest.includes("--watch")) {
       throw new Error(
-        "Usage: run --watch (--repo <owner/repo> [--issue <number>] | --fixture <path>) [--state-file <path>] [--max-cycles <count>] [--interval-ms <ms>]"
+        "Usage: run --watch (--repo <owner/repo> [--issue <number>] | --fixture <path>) [--state-file <path>] [--max-cycles <count>] [--interval-ms <ms>] [--resume]"
       );
     }
 
@@ -97,10 +97,11 @@ async function main(args: string[]): Promise<void> {
     const intervalMs = readOption(rest, "--interval-ms");
     const npfPauseThreshold = readOption(rest, "--npf-threshold");
     const stateFile = readOption(rest, "--state-file");
+    const resume = rest.includes("--resume");
 
     if (!fixture && !repository) {
       throw new Error(
-        "Usage: run --watch (--repo <owner/repo> [--issue <number>] | --fixture <path>) [--state-file <path>] [--max-cycles <count>] [--interval-ms <ms>]"
+        "Usage: run --watch (--repo <owner/repo> [--issue <number>] | --fixture <path>) [--state-file <path>] [--max-cycles <count>] [--interval-ms <ms>] [--resume]"
       );
     }
 
@@ -108,7 +109,7 @@ async function main(args: string[]): Promise<void> {
       throw new Error("Choose either --repo for live GitHub watch or --fixture for fixture replay, not both");
     }
 
-    const sharedOptions: Pick<FixtureWatchOptions, "maxCycles" | "intervalMs" | "npfPauseThreshold" | "stateFilePath"> = {};
+    const sharedOptions: Pick<FixtureWatchOptions, "maxCycles" | "intervalMs" | "npfPauseThreshold" | "stateFilePath" | "resume"> = {};
     if (maxCycles) {
       sharedOptions.maxCycles = Number.parseInt(maxCycles, 10);
     }
@@ -120,6 +121,9 @@ async function main(args: string[]): Promise<void> {
     }
     if (stateFile) {
       sharedOptions.stateFilePath = path.resolve(stateFile);
+    }
+    if (resume) {
+      sharedOptions.resume = true;
     }
 
     if (fixture) {

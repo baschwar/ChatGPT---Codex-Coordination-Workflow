@@ -20,6 +20,16 @@ gh auth login -h github.com
 
 If `gh` cannot read the repository, the coordinator pauses with a HUMAN setup diagnostic and does not write heartbeat comments.
 
+## Resume A Paused Session
+
+Paused session state is sticky by default. After a six-NPF auto-pause or a HUMAN/setup pause, resume only with an explicit reset command:
+
+```sh
+npm run coordinator -- run --watch --repo baschwar/ChatGPT---Codex-Coordination-Workflow --state-file .chatgpt-coordinator/session-state.json --interval-ms 600000 --resume
+```
+
+The `--resume` flag resets the persisted state to `{ "consecutiveNpf": 0, "status": "active" }` before polling. Without that flag, a paused state file remains paused and the runner exits without polling.
+
 ## Short Gate Command
 
 Use this before the real ten-minute run to prove the live GitHub watch path is wired:

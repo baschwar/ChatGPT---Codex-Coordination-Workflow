@@ -21,6 +21,7 @@ export interface FixtureWatchOptions {
   intervalMs?: number;
   npfPauseThreshold?: number;
   stateFilePath?: string;
+  resume?: boolean;
 }
 
 export interface GithubWatchOptions {
@@ -31,6 +32,7 @@ export interface GithubWatchOptions {
   intervalMs?: number;
   npfPauseThreshold?: number;
   stateFilePath?: string;
+  resume?: boolean;
 }
 
 export interface ProviderWatchOptions {
@@ -41,6 +43,7 @@ export interface ProviderWatchOptions {
   maxCycles?: number;
   intervalMs?: number;
   npfPauseThreshold?: number;
+  resume?: boolean;
 }
 
 export type SnapshotProvider = (cycleIndex: number) => Promise<WorkflowRepositorySnapshot>;
@@ -121,6 +124,11 @@ export async function runWatchWithProvider(options: ProviderWatchOptions, provid
   const audits: CycleAuditEvent[] = [];
   let state = await loadSessionState(options.stateFilePath);
 
+  if (options.resume) {
+    state = { consecutiveNpf: 0, status: "active" };
+    await saveSessionState(options.stateFilePath, state);
+  }
+
   if (state.status === "paused") {
     return {
       mode: "READ ONLY / DRY RUN",
@@ -188,6 +196,9 @@ export async function runFixtureWatch(options: FixtureWatchOptions): Promise<obj
   if (options.npfPauseThreshold !== undefined) {
     providerOptions.npfPauseThreshold = options.npfPauseThreshold;
   }
+  if (options.resume !== undefined) {
+    providerOptions.resume = options.resume;
+  }
 
   return runWatchWithProvider(
     providerOptions,
@@ -220,6 +231,9 @@ export async function runGithubWatch(options: GithubWatchOptions): Promise<objec
   }
   if (options.npfPauseThreshold !== undefined) {
     providerOptions.npfPauseThreshold = options.npfPauseThreshold;
+  }
+  if (options.resume !== undefined) {
+    providerOptions.resume = options.resume;
   }
 
   return runWatchWithProvider(

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { GithubSnapshotError } from "../apps/cli/src/github-dry-run.js";
@@ -131,4 +131,52 @@ test("live watch provider surfaces GitHub auth failures as HUMAN setup diagnosti
   assert.equal(result.audits[0]?.reason, "github-auth-required");
   assert.deepEqual(result.audits[0]?.diagnostics, ["Run: gh auth login -h github.com"]);
   assert.deepEqual(await readPersistedState(stateFile), { consecutiveNpf: 0, status: "paused" });
+});
+
+test("live watch provider keeps paused persisted state paused by default", async () => {
+  const stateFile = await tempStateFile();
+  await writeFile(stateFile, `${JSON.stringify({ consecutiveNpf: 6, status: "paused" }, null, 2)}\n`, "utf8");
+  let calls = 0;
+  const result = (await runWatchWithProvider(
+    {
+      labels,
+      providerName: "mock-live",
+      stateFilePath: stateFile,
+      maxCycles: 1,
+      intervalMs: 0
+    },
+    async () => {
+      calls += 1;
+      return snapshot([{ number: 1, title: "Ready", labels: ["codex-ready"] }]);
+    }
+  )) as WatchResult;
+
+  assert.equal(calls, 0);
+  assert.equal(result.cyclesRun, 0);
+  assert.equal(result.consecutiveNpf, 6);
+  assert.equal(result.sessionStatus, "paused");
+  assert.deepEqual(await readPersistedState(stateFile), { consecutiveNpf: 6, status: "paused" });
+});
+
+test("live watch provider resumes paused persisted state only with explicit intent", async () => {
+  const stateFile = await tempStateFile();
+  await writeFile(stateFile, `${JSON.stringify({ consecutiveNpf: 6, status: "paused" }, null, 2)}\n`, "utf8");
+  const result = (await runWatchWithProvider(
+    {
+      labels,
+      providerName: "mock-live",
+      stateFilePath: stateFile,
+      maxCycles: 1,
+      intervalMs: 0,
+      resume: true
+    },
+    async () => snapshot([{ number: 1, title: "Ready", labels: ["codex-ready"] }])
+  )) as WatchResult;
+
+  assert.equal(result.cyclesRun, 1);
+  assert.equal(result.audits[0]?.outcome, "ACTION");
+  assert.equal(result.audits[0]?.npfBefore, 0);
+  assert.equal(result.consecutiveNpf, 0);
+  assert.equal(result.sessionStatus, "active");
+  assert.deepEqual(await readPersistedState(stateFile), { consecutiveNpf: 0, status: "active" });
 });
