@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/chatgpt-github-coordinator/review-result.schema.json",
+  "title": "Review Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["decision", "findings", "validation", "approvalGates"],
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": ["approved", "changes-requested", "blocked", "human-approval-required"]
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "summary"],
+        "properties": {
+          "severity": { "type": "string", "enum": ["critical", "high", "medium", "low", "info"] },
+          "summary": { "type": "string", "minLength": 1 },
+          "file": { "type": "string" },
+          "line": { "type": "integer", "minimum": 1 },
+          "evidence": { "type": "string" }
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["automated", "manual", "physical"],
+      "properties": {
+        "automated": { "$ref": "#/$defs/validationStatus" },
+        "manual": { "$ref": "#/$defs/validationStatus" },
+        "physical": { "$ref": "#/$defs/validationStatus" }
+      }
+    },
+    "approvalGates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/gateEvaluation" }
+    }
+  },
+  "$defs": {
+    "validationStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "type": "string", "enum": ["passed", "failed", "not-run", "not-applicable", "requires-human-confirmation"] },
+        "evidence": { "type": "string" }
+      }
+    },
+    "gateEvaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate", "status"],
+      "properties": {
+        "gate": { "type": "string", "minLength": 1 },
+        "status": { "type": "string", "enum": ["approved", "rejected", "missing", "ambiguous", "not-required"] },
+        "evidence": { "type": "string" }
+      }
+    }
+  }
+}
+

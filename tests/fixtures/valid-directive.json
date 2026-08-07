@@ -1,0 +1,35 @@
+{
+  "objective": "Add local directive preview",
+  "background": "Milestone 1 needs a no-write issue preview.",
+  "approvedScope": [
+    "Render an issue body from a directive JSON file."
+  ],
+  "constraints": [
+    "Do not create GitHub issues."
+  ],
+  "acceptanceCriteria": [
+    "The preview includes all required issue sections."
+  ],
+  "requiredAutomatedTests": [
+    "Run preview tests."
+  ],
+  "requiredManualTests": [
+    "Review rendered output."
+  ],
+  "documentationRequirements": [
+    "Document the planned command."
+  ],
+  "exclusions": [
+    "No real GitHub write operations."
+  ],
+  "dependencies": [
+    "Local filesystem access."
+  ],
+  "validationRequirements": [
+    "Typecheck and automated tests pass."
+  ],
+  "humanApprovalGates": [
+    "Creating real implementation issues remains explicit."
+  ],
+  "sourceReference": "Checkpoint request."
+}

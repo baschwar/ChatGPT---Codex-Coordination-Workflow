@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/chatgpt-github-coordinator/project-config.schema.json",
+  "title": "ChatGPT GitHub Coordinator Project Configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "project", "governance", "labels", "approval_gates"],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "governance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files"],
+      "properties": {
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "labels": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["implementation_ready", "implementation_in_progress", "manual_validation", "review_ready", "blocked", "needs_human"],
+      "properties": {
+        "implementation_ready": { "type": "string", "minLength": 1 },
+        "implementation_in_progress": { "type": "string", "minLength": 1 },
+        "manual_validation": { "type": "string", "minLength": 1 },
+        "review_ready": { "type": "string", "minLength": 1 },
+        "blocked": { "type": "string", "minLength": 1 },
+        "needs_human": { "type": "string", "minLength": 1 }
+      }
+    },
+    "approval_gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "create_implementation_issue",
+        "merge_pull_request",
+        "begin_next_milestone",
+        "complete_manual_validation",
+        "complete_physical_validation",
+        "close_implementation_task"
+      ],
+      "properties": {
+        "create_implementation_issue": { "$ref": "#/$defs/gateMode" },
+        "merge_pull_request": { "$ref": "#/$defs/gateMode" },
+        "begin_next_milestone": { "$ref": "#/$defs/gateMode" },
+        "complete_manual_validation": { "$ref": "#/$defs/gateMode" },
+        "complete_physical_validation": { "$ref": "#/$defs/gateMode" },
+        "close_implementation_task": { "$ref": "#/$defs/gateMode" }
+      }
+    },
+    "issue_template": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "include": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/directiveSection" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "inspect": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/reviewInput" },
+          "uniqueItems": true
+        }
+      }
+    }
+  },
+  "$defs": {
+    "gateMode": {
+      "type": "string",
+      "enum": ["explicit", "disabled"]
+    },
+    "directiveSection": {
+      "type": "string",
+      "enum": [
+        "objective",
+        "background",
+        "approved_scope",
+        "constraints",
+        "acceptance_criteria",
+        "required_tests",
+        "required_manual_tests",
+        "documentation_requirements",
+        "exclusions",
+        "dependencies",
+        "validation_requirements",
+        "human_approval_gates",
+        "source_reference"
+      ]
+    },
+    "reviewInput": {
+      "type": "string",
+      "enum": [
+        "issue_body",
+        "issue_comments",
+        "commits",
+        "pull_request",
+        "pull_request_comments",
+        "checks",
+        "changed_files",
+        "governance_files"
+      ]
+    }
+  }
+}

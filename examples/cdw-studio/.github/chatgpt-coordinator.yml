@@ -1,0 +1,52 @@
+version: 1
+
+project:
+  name: Computational Design Workbench
+
+governance:
+  files:
+    - AGENTS.md
+    - PROJECT_STATUS.md
+    - ROADMAP/CDW_ROADMAP.md
+
+labels:
+  implementation_ready: codex-ready
+  review_ready: chat-review-ready
+  blocked: blocked
+  needs_human: needs-human-review
+
+approval_gates:
+  create_implementation_issue: explicit
+  merge_pull_request: explicit
+  begin_next_milestone: explicit
+  complete_manual_validation: explicit
+  complete_physical_validation: explicit
+  close_implementation_task: explicit
+
+issue_template:
+  include:
+    - objective
+    - background
+    - approved_scope
+    - constraints
+    - acceptance_criteria
+    - required_tests
+    - required_manual_tests
+    - documentation_requirements
+    - exclusions
+    - dependencies
+    - validation_requirements
+    - human_approval_gates
+    - source_reference
+
+review:
+  inspect:
+    - issue_body
+    - issue_comments
+    - commits
+    - pull_request
+    - pull_request_comments
+    - checks
+    - changed_files
+    - governance_files
+
