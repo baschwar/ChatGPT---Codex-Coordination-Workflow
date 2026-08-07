@@ -78,7 +78,7 @@ test("pickup waits on manual validation unless coding correction is requested", 
   assert.deepEqual(
     decideTaskPickup({ labels: ["manual-validation"], relatedPullRequests: [pullRequest], hasCodingCorrectionRequest: true }, labels),
     {
-      action: "resume-open-pr",
+      action: "resume-correction",
       reason: "manual-validation-coding-correction",
       pullRequest
     }
