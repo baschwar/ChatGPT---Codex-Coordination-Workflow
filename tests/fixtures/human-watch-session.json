@@ -1,0 +1,6 @@
+[
+  {
+    "repository": "example/repo",
+    "issues": [{ "number": 4, "title": "Needs manual validation", "labels": ["manual-validation"] }]
+  }
+]
