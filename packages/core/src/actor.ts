@@ -3,7 +3,7 @@ import type { CycleDecision } from "./session.js";
 export type ActorTransportKind = "none" | "mock" | "external";
 
 export interface ActorInvocation {
-  actor: "thinker" | "worker" | "human";
+  actor: "thinker" | "worker" | "human" | "none";
   transport: ActorTransportKind;
   decision: CycleDecision;
   supported: boolean;
@@ -24,7 +24,7 @@ export function actorForDecision(decision: CycleDecision): ActorInvocation["acto
     return "worker";
   }
 
-  return "thinker";
+  return "none";
 }
 
 export function createNoopActorTransport(): ActorTransport {

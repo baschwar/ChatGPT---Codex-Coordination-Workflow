@@ -137,6 +137,7 @@ async function saveSessionState(stateFilePath: string | undefined, state: Sessio
 function createHumanSetupDecision(repository: string, reason: string, diagnostics: string[]): CycleDecision {
   return {
     repository,
+    eventId: `${repository}|setup:${reason}`,
     pickup: { action: "wait", reason: "not-in-implementation-queue" },
     outcome: "HUMAN",
     reason,

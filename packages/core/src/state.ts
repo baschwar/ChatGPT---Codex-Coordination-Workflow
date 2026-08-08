@@ -32,6 +32,7 @@ export interface RelatedPullRequest {
   state: "open" | "closed" | "merged";
   branch?: string;
   url?: string;
+  eventId?: string;
 }
 
 export interface TaskPickupInput {

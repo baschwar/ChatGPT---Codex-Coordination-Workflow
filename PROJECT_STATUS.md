@@ -1,6 +1,6 @@
 # Project Status
 
-Status: Beta 2 implementation in progress for issue #3.
+Status: Beta 2 review-ready for issue #3 on PR #4.
 
 Completed:
 
@@ -22,6 +22,8 @@ Completed:
 - Generic and CDW example configuration paths
 - Actor transport and headless service command boundaries
 - SSH-only local worker Git transport setup check
+- Repository-neutral meaningful-event identity persisted across watch cycles
+- Quiet NPF actor routing with no worker/thinker invocation
 
 Not started:
 

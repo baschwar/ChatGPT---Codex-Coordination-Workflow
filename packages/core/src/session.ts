@@ -9,12 +9,14 @@ export interface WorkflowIssue {
   number: number;
   title: string;
   labels: string[];
+  eventId?: string;
   relatedPullRequests?: RelatedPullRequest[];
   hasCodingCorrectionRequest?: boolean;
 }
 
 export interface WorkflowRepositorySnapshot {
   repository: string;
+  eventId?: string;
   issues: WorkflowIssue[];
   repositoryLabels?: string[];
 }
@@ -39,6 +41,8 @@ export interface SessionState {
 
 export interface CycleDecision {
   repository: string;
+  eventId: string;
+  explicitEventId?: string;
   issue?: WorkflowIssue;
   pickup: TaskPickupDecision;
   outcome: CycleOutcome;
@@ -109,13 +113,41 @@ function humanGateForDecision(decision: CycleDecision): HumanStopReason {
   return "blocked";
 }
 
-function eventIdForDecision(decision: CycleDecision): string {
-  const issue = decision.issue ? `issue:${decision.issue.number}` : "issue:none";
-  const pullRequest = decision.pickup.pullRequest?.url ?? decision.pickup.pullRequest?.branch ?? "pr:none";
-  return `${decision.repository}|${issue}|${pullRequest}|${decision.outcome}|${decision.reason}`;
+function structuralPullRequestId(pullRequest: RelatedPullRequest | undefined): string {
+  if (!pullRequest) {
+    return "pr:none";
+  }
+
+  return `pr:${pullRequest.state}:${pullRequest.url ?? "url:none"}:${pullRequest.branch ?? "branch:none"}`;
 }
 
-function withDecisionContext(state: SessionState, decision: CycleDecision, timestamp: string): SessionState {
+function issueStructuralEventId(issue: WorkflowIssue | undefined): string {
+  if (!issue) {
+    return "issue:none";
+  }
+
+  const pullRequests = issue.relatedPullRequests?.map(structuralPullRequestId).sort().join(",") ?? "prs:none";
+  return `issue:${issue.number}:labels:${[...issue.labels].sort().join(",")}:correction:${issue.hasCodingCorrectionRequest === true}:prs:${pullRequests}`;
+}
+
+function explicitEventIdFor(snapshot: WorkflowRepositorySnapshot, issue: WorkflowIssue | undefined, pullRequest: RelatedPullRequest | undefined): string | undefined {
+  return pullRequest?.eventId ?? issue?.eventId ?? snapshot.eventId;
+}
+
+function eventContextFor(snapshot: WorkflowRepositorySnapshot, issue: WorkflowIssue | undefined, pullRequest: RelatedPullRequest | undefined): Pick<CycleDecision, "eventId" | "explicitEventId"> {
+  const explicitEventId = explicitEventIdFor(snapshot, issue, pullRequest);
+  const context: Pick<CycleDecision, "eventId" | "explicitEventId"> = {
+    eventId: explicitEventId ?? `${snapshot.repository}|${issueStructuralEventId(issue)}|${structuralPullRequestId(pullRequest)}`
+  };
+
+  if (explicitEventId !== undefined) {
+    context.explicitEventId = explicitEventId;
+  }
+
+  return context;
+}
+
+function withDecisionContext(state: SessionState, decision: CycleDecision, timestamp: string, meaningfulActivity: boolean): SessionState {
   if (!isDurableSessionState(state)) {
     return state;
   }
@@ -123,7 +155,7 @@ function withDecisionContext(state: SessionState, decision: CycleDecision, times
   const next: SessionState = {
     ...state,
     repository: decision.repository,
-    lastProcessedEventId: eventIdForDecision(decision)
+    lastProcessedEventId: decision.eventId
   };
 
   if (decision.issue) {
@@ -141,8 +173,11 @@ function withDecisionContext(state: SessionState, decision: CycleDecision, times
   } else if (decision.outcome === "HUMAN") {
     next.nextActor = "human";
     next.currentHumanGate = humanGateForDecision(decision);
-  } else if (!next.nextActor) {
+  } else if (decision.outcome === "NPF") {
     next.nextActor = "none";
+    if (meaningfulActivity) {
+      next.lastMeaningfulActivityAt = timestamp;
+    }
   }
 
   return next;
@@ -182,6 +217,7 @@ export function decideCycle(snapshot: WorkflowRepositorySnapshot, labels: TaskWo
     if (countWorkflowLabels(issue, labels) > 1) {
       return {
         repository: snapshot.repository,
+        ...eventContextFor(snapshot, issue, undefined),
         issue,
         pickup: { action: "wait", reason: "not-in-implementation-queue" },
         outcome: "HUMAN",
@@ -197,6 +233,7 @@ export function decideCycle(snapshot: WorkflowRepositorySnapshot, labels: TaskWo
     if (pickup.action === "claim-and-branch" || pickup.action === "resume-open-pr" || pickup.action === "resume-correction") {
       return {
         repository: snapshot.repository,
+        ...eventContextFor(snapshot, issue, pickup.pullRequest),
         issue,
         pickup,
         outcome: "ACTION",
@@ -208,6 +245,7 @@ export function decideCycle(snapshot: WorkflowRepositorySnapshot, labels: TaskWo
     if (pickup.reason === "manual-validation-awaiting-human") {
       return {
         repository: snapshot.repository,
+        ...eventContextFor(snapshot, issue, pickup.pullRequest),
         issue,
         pickup,
         outcome: "HUMAN",
@@ -218,9 +256,11 @@ export function decideCycle(snapshot: WorkflowRepositorySnapshot, labels: TaskWo
   }
 
   const firstIssue = snapshot.issues[0];
+  const pickup: TaskPickupDecision = firstIssue ? decideTaskPickup(firstIssue, labels) : { action: "wait", reason: "not-in-implementation-queue" };
   const decision: CycleDecision = {
     repository: snapshot.repository,
-    pickup: firstIssue ? decideTaskPickup(firstIssue, labels) : { action: "wait", reason: "not-in-implementation-queue" },
+    ...eventContextFor(snapshot, firstIssue, pickup.pullRequest),
+    pickup,
     outcome: "NPF",
     reason: firstIssue ? "no-actionable-workflow-state" : "no-eligible-open-work",
     diagnostics
@@ -240,11 +280,18 @@ export function applyCycleOutcome(
   timestamp = new Date().toISOString()
 ): SessionState {
   if (decision.outcome === "ACTION") {
-    return withDecisionContext({ ...state, consecutiveNpf: 0, status: "active" }, decision, timestamp);
+    return withDecisionContext({ ...state, consecutiveNpf: 0, status: "active" }, decision, timestamp, true);
   }
 
   if (decision.outcome === "HUMAN") {
-    return withDecisionContext({ ...state, consecutiveNpf: state.consecutiveNpf, status: "paused" }, decision, timestamp);
+    return withDecisionContext({ ...state, consecutiveNpf: state.consecutiveNpf, status: "paused" }, decision, timestamp, false);
+  }
+
+  const hasNewMeaningfulActivity =
+    isDurableSessionState(state) && decision.explicitEventId !== undefined && state.lastProcessedEventId !== decision.eventId;
+
+  if (hasNewMeaningfulActivity) {
+    return withDecisionContext({ ...state, consecutiveNpf: 0, status: "active" }, decision, timestamp, true);
   }
 
   const consecutiveNpf = state.consecutiveNpf + 1;
@@ -252,7 +299,7 @@ export function applyCycleOutcome(
     ...state,
     consecutiveNpf,
     status: consecutiveNpf >= config.npfPauseThreshold ? "paused" : "active"
-  }, decision, timestamp);
+  }, decision, timestamp, false);
 }
 
 export function createCycleAuditEvent(

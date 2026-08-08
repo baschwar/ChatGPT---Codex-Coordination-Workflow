@@ -14,12 +14,15 @@ interface GhLabel {
 interface GhIssue {
   number: number;
   title: string;
+  updatedAt?: string;
   labels: GhLabel[];
 }
 
 interface GhPullRequest {
   state: "OPEN" | "CLOSED" | "MERGED";
   headRefName: string;
+  headRefOid?: string;
+  updatedAt?: string;
   url: string;
   closingIssuesReferences: Array<{ number: number }>;
 }
@@ -91,6 +94,10 @@ function parseRepository(repository: string): { owner: string; repo: string } {
   return { owner, repo };
 }
 
+function eventId(parts: string[]): string {
+  return parts.join("|");
+}
+
 export interface GithubDryRunOptions {
   repoRoot: string;
   repository: string;
@@ -115,12 +122,12 @@ export async function createGithubSnapshot(options: GithubSnapshotOptions): Prom
     "--state",
     "all",
     "--json",
-    "number,title,state,headRefName,url,closingIssuesReferences"
+    "number,title,state,headRefName,headRefOid,updatedAt,url,closingIssuesReferences"
   ])) as GhPullRequest[];
 
   const issueArgs = options.issueNumber
-    ? ["issue", "view", String(options.issueNumber), "--repo", options.repository, "--json", "number,title,labels"]
-    : ["issue", "list", "--repo", options.repository, "--state", "open", "--json", "number,title,labels"];
+    ? ["issue", "view", String(options.issueNumber), "--repo", options.repository, "--json", "number,title,updatedAt,labels"]
+    : ["issue", "list", "--repo", options.repository, "--state", "open", "--json", "number,title,updatedAt,labels"];
   const issueData = await ghJson(issueArgs);
   const issues = (Array.isArray(issueData) ? issueData : [issueData]) as GhIssue[];
   const workflowIssues: WorkflowIssue[] = issues.map((issue) => {
@@ -129,13 +136,28 @@ export async function createGithubSnapshot(options: GithubSnapshotOptions): Prom
       .map((pullRequest) => ({
         state: normalizePullRequestState(pullRequest.state),
         branch: pullRequest.headRefName,
-        url: pullRequest.url
+        url: pullRequest.url,
+        eventId: eventId([
+          options.repository,
+          `issue:${issue.number}`,
+          `pr:${pullRequest.url}`,
+          `state:${pullRequest.state}`,
+          `head:${pullRequest.headRefOid ?? "unknown"}`,
+          `updated:${pullRequest.updatedAt ?? "unknown"}`
+        ])
       }));
 
     const workflowIssue: WorkflowIssue = {
       number: issue.number,
       title: issue.title,
-      labels: issue.labels.map((label) => label.name)
+      labels: issue.labels.map((label) => label.name),
+      eventId: eventId([
+        options.repository,
+        `issue:${issue.number}`,
+        `labels:${issue.labels.map((label) => label.name).sort().join(",")}`,
+        `updated:${issue.updatedAt ?? "unknown"}`,
+        `prs:${relatedPullRequests.map((pullRequest) => pullRequest.eventId ?? "unknown").sort().join(",")}`
+      ])
     };
 
     if (relatedPullRequests.length > 0) {

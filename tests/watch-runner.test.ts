@@ -205,3 +205,68 @@ test("repository watch provider persists durable session context", async () => {
   assert.equal(persisted.inactivityTimeoutMinutes, 60);
   assert.equal(persisted.consecutiveNpf, 0);
 });
+
+test("repository watch provider persists meaningful event identity across runs", async () => {
+  const stateFile = await tempStateFile();
+  await writeFile(
+    stateFile,
+    `${JSON.stringify(
+      {
+        consecutiveNpf: 4,
+        status: "active",
+        repository: "example/repo",
+        nextActor: "none",
+        lastMeaningfulActivityAt: "2026-08-08T00:00:00.000Z",
+        inactivityTimeoutMinutes: 60,
+        lastProcessedEventId: "pr:1:head:a"
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+  const reviewReady = snapshot([
+    {
+      number: 1,
+      title: "Review",
+      labels: ["chat-review-ready"],
+      relatedPullRequests: [{ state: "open", branch: "codex/issue-1", url: "https://github.com/example/repo/pull/1", eventId: "pr:1:head:b" }]
+    }
+  ]);
+
+  const first = (await runWatchWithProvider(
+    {
+      labels,
+      providerName: "mock-live",
+      repository: "example/repo",
+      stateFilePath: stateFile,
+      maxCycles: 1,
+      intervalMs: 0,
+      inactivityTimeoutMinutes: 60
+    },
+    async () => reviewReady
+  )) as WatchResult;
+  const second = (await runWatchWithProvider(
+    {
+      labels,
+      providerName: "mock-live",
+      repository: "example/repo",
+      stateFilePath: stateFile,
+      maxCycles: 1,
+      intervalMs: 0,
+      inactivityTimeoutMinutes: 60
+    },
+    async () => reviewReady
+  )) as WatchResult;
+  const persisted = JSON.parse(await readFile(stateFile, "utf8")) as Record<string, unknown>;
+
+  assert.equal(first.consecutiveNpf, 0);
+  assert.equal(first.audits[0]?.npfBefore, 4);
+  assert.equal(first.audits[0]?.npfAfter, 0);
+  assert.equal(second.consecutiveNpf, 1);
+  assert.equal(second.audits[0]?.npfBefore, 0);
+  assert.equal(second.audits[0]?.npfAfter, 1);
+  assert.equal(persisted.lastProcessedEventId, "pr:1:head:b");
+  assert.equal(typeof persisted.lastMeaningfulActivityAt, "string");
+  assert.notEqual(persisted.lastMeaningfulActivityAt, "2026-08-08T00:00:00.000Z");
+});
