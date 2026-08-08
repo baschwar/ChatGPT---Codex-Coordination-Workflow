@@ -36,6 +36,7 @@ npm run coordinator -- directive create tests/fixtures/valid-directive.json "Cre
 npm run coordinator -- discover --repo baschwar/ChatGPT---Codex-Coordination-Workflow --json
 npm run coordinator -- demo --fixture
 npm run coordinator -- demo --fixture --json
+npm run coordinator -- demo --fixture --resume --approval approved
 npm run coordinator -- demo --repo baschwar/ChatGPT---Codex-Coordination-Workflow --json
 npm run coordinator -- demo --reset
 npm run coordinator -- dry-run --repo baschwar/ChatGPT---Codex-Coordination-Workflow --issue 1
@@ -55,7 +56,7 @@ Start with the fixture demo:
 npm run coordinator -- demo --fixture
 ```
 
-It shows the approved directive, worker pickup, implementation handoff, review correction, corrected review-ready handoff, and manual-validation gate without live GitHub writes or actor wake-up. Demo artifacts carry `<!-- coordinator:demo-artifact -->` and are excluded from normal production pickup unless the dedicated demo command is active.
+It shows the approved directive, worker pickup, implementation handoff, review correction, corrected review-ready handoff, and manual-validation gate without live GitHub writes or actor wake-up. The default fixture stops at the human gate. To explicitly resume and record completion, run `npm run coordinator -- demo --fixture --resume --approval approved`. Demo artifacts carry `<!-- coordinator:demo-artifact -->` and are excluded from normal production pickup unless the dedicated demo command is active.
 
 ## Repository Layout
 

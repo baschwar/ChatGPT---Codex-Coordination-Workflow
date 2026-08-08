@@ -221,12 +221,15 @@ async function main(args: string[]): Promise<void> {
   if (command === "demo") {
     const repoRoot = readOption(rest, "--repo-root") ?? process.cwd();
     const repository = readOption(rest, "--repo");
+    const approvalText = readOption(rest, "--approval");
     const json = rest.includes("--json");
     const result = await runDemo({
       repoRoot,
       fixture: rest.includes("--fixture"),
       reset: rest.includes("--reset"),
       executeWrites: rest.includes("--execute-writes"),
+      resume: rest.includes("--resume"),
+      ...(approvalText ? { approvalText } : {}),
       ...(repository ? { repository } : {})
     });
 

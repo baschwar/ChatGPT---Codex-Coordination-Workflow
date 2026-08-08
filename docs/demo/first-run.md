@@ -36,7 +36,29 @@ Expected progression:
 [6/6] Manual validation gate -> human
 ```
 
-The fixture demo writes only `examples/demo/DEMO_OUTPUT.md` and `.chatgpt-coordinator/demo/fixture-result.json`. It uses mock GitHub writes to prove label transition idempotency, latest correction routing, review-ready handoff routing, and human-gate pause behavior.
+The fixture demo writes only `examples/demo/DEMO_OUTPUT.md`, `.chatgpt-coordinator/demo/fixture-result.json`, and `.chatgpt-coordinator/demo/fixture-state.json`. It uses mock GitHub writes to prove label transition idempotency, latest correction routing, review-ready handoff routing, and human-gate pause behavior.
+
+The default fixture intentionally stops at the human gate. Completion is blocked until explicit approval is supplied:
+
+```sh
+npm run coordinator -- demo --fixture --resume --json
+```
+
+Expected result: `valid` is `false`, and diagnostics explain that explicit demo resume approval is required.
+
+Resume with explicit approval:
+
+```sh
+npm run coordinator -- demo --fixture --resume --approval approved --json
+```
+
+Expected completion evidence:
+
+- a seventh step named `Explicit resume completion`
+- completion write status `succeeded` on the first resume
+- completion write status `skipped` on replay
+- `mergePerformed: false`
+- `examples/demo/DEMO_OUTPUT.md` records explicit resume completion
 
 ## Live Demo Plan
 
@@ -68,6 +90,7 @@ The coordinator demonstrates ownership routing. It does not fabricate actor wake
 - Codex is not autonomously invoked by the fixture.
 - Human validation is not completed automatically.
 - Pull requests are not merged by default.
+- Demo completion requires `--resume --approval approved`.
 
 ## Reset
 

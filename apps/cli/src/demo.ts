@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadProjectConfig } from "../../../packages/config/src/load.js";
 import {
@@ -7,8 +7,10 @@ import {
   executeCoordinatorAction,
   type ActionExecutionResult,
   type CoordinatorAction,
-  type MutationPolicy
+  type MutationPolicy,
+  type WriteSessionState
 } from "../../../packages/core/src/actions.js";
+import { evaluateExplicitApproval } from "../../../packages/core/src/approval.js";
 import { discoverRepositoryWork, type RepositoryDiscoverySnapshot } from "../../../packages/core/src/discovery.js";
 import { createDurableSessionState, runCycle, type WorkflowRepositorySnapshot } from "../../../packages/core/src/session.js";
 import type { TaskWorkflowLabels } from "../../../packages/core/src/state.js";
@@ -23,6 +25,8 @@ export interface DemoOptions {
   executeWrites?: boolean;
   reset?: boolean;
   json?: boolean;
+  resume?: boolean;
+  approvalText?: string;
 }
 
 export interface DemoStep {
@@ -50,8 +54,22 @@ interface DemoIssueState {
   comments: string[];
 }
 
+interface PersistedDemoState {
+  status: "paused" | "complete";
+  currentStage: "manual-validation" | "complete";
+  mergePerformed: false;
+  writeState: WriteSessionState;
+  steps: DemoStep[];
+  writeResults: ActionExecutionResult[];
+  approvalEvidence?: string;
+}
+
 function demoStateDir(repoRoot: string): string {
   return path.join(repoRoot, ".chatgpt-coordinator", "demo");
+}
+
+function demoStatePath(repoRoot: string): string {
+  return path.join(demoStateDir(repoRoot), "fixture-state.json");
 }
 
 function demoIssue(labels: string[], eventId: string): WorkflowRepositorySnapshot {
@@ -106,8 +124,8 @@ async function executeActions(options: {
   actions: CoordinatorAction[];
   adapter: GitHubWriteAdapter;
   policy: MutationPolicy;
-  state: ReturnType<typeof createWriteSessionState>;
-}): Promise<{ state: ReturnType<typeof createWriteSessionState>; results: ActionExecutionResult[] }> {
+  state: WriteSessionState;
+}): Promise<{ state: WriteSessionState; results: ActionExecutionResult[] }> {
   let state = options.state;
   const results: ActionExecutionResult[] = [];
 
@@ -182,7 +200,127 @@ export async function resetDemo(repoRoot: string): Promise<DemoResult> {
   };
 }
 
-export async function runFixtureDemo(repoRoot: string): Promise<DemoResult> {
+async function loadPersistedDemoState(repoRoot: string): Promise<PersistedDemoState | undefined> {
+  try {
+    return JSON.parse(await readFile(demoStatePath(repoRoot), "utf8")) as PersistedDemoState;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+      return undefined;
+    }
+
+    throw error;
+  }
+}
+
+async function savePersistedDemoState(repoRoot: string, state: PersistedDemoState): Promise<void> {
+  await mkdir(demoStateDir(repoRoot), { recursive: true });
+  await writeFile(demoStatePath(repoRoot), `${JSON.stringify(state, null, 2)}\n`, "utf8");
+}
+
+async function resumeFixtureDemo(repoRoot: string, approvalText: string | undefined): Promise<DemoResult> {
+  const approval = evaluateExplicitApproval(approvalText);
+  const persisted = await loadPersistedDemoState(repoRoot);
+  const diagnostics: string[] = [];
+
+  if (!persisted || (persisted.currentStage !== "manual-validation" && persisted.currentStage !== "complete")) {
+    diagnostics.push("Demo resume requires a persisted manual-validation gate. Run `npm run coordinator -- demo --fixture` first.");
+  }
+  if (approval.status !== "approved") {
+    diagnostics.push(`Explicit demo resume approval required: ${approval.reason ?? "approval missing"}`);
+  }
+
+  if (diagnostics.length > 0 || !persisted) {
+    return {
+      mode: "fixture",
+      valid: false,
+      repository: "demo/local-fixture",
+      demoMarker: demoArtifactMarker,
+      steps: [
+        {
+          index: 7,
+          title: "Resume blocked",
+          summary: "Completion cannot occur without a persisted HUMAN gate and explicit approval.",
+          nextActor: "human",
+          evidence: {
+            persistedGate: persisted?.currentStage ?? "missing",
+            approvalStatus: approval.status,
+            mergePerformed: false
+          }
+        }
+      ],
+      writeResults: [],
+      diagnostics,
+      resetPaths: [demoStateDir(repoRoot)],
+      limitations: ["Default demo behavior does not merge a pull request."]
+    };
+  }
+
+  const issue: DemoIssueState = { labels: ["manual-validation"], comments: [] };
+  const calls: string[] = [];
+  const adapter = demoAdapter(issue, calls);
+  const policy: MutationPolicy = {
+    enabled: true,
+    allowed_actions: ["POST_HANDOFF_COMMENT"]
+  };
+  const completion = await executeActions({
+    actions: [{
+      type: "POST_HANDOFF_COMMENT",
+      eventId: "demo/local-fixture|issue:9001|completion",
+      repository: "demo/local-fixture",
+      issueNumber: 9001,
+      body: "DEMO COMPLETE\n\nExplicit demo resume approval recorded. Default demo did not merge the PR."
+    }],
+    adapter,
+    policy,
+    state: persisted.writeState
+  });
+  const writeResults = [...persisted.writeResults, ...completion.results];
+  const completionStep: DemoStep = {
+    index: persisted.steps.length + 1,
+    title: "Explicit resume completion",
+    summary: "Human approval resumes the paused demo and records completion without merging.",
+    nextActor: "human",
+    evidence: {
+      approval: approval.evidence,
+      completionStatuses: completion.results.map((result) => result.status),
+      mergePerformed: false,
+      adapterCalls: calls
+    }
+  };
+  const steps = [...persisted.steps, completionStep];
+  const nextState: PersistedDemoState = {
+    status: "complete",
+    currentStage: "complete",
+    mergePerformed: false,
+    writeState: completion.state,
+    steps,
+    writeResults,
+    ...(approval.evidence ? { approvalEvidence: approval.evidence } : {})
+  };
+  await savePersistedDemoState(repoRoot, nextState);
+  await writeFile(path.join(repoRoot, "examples", "demo", "DEMO_OUTPUT.md"), `${demoArtifactMarker}\n\nCoordinator demo reached the corrected implementation stage.\n\nCoordinator demo recorded explicit resume completion.\n`, "utf8");
+
+  return {
+    mode: "fixture",
+    valid: completion.results.every((result) => result.status === "succeeded" || result.status === "skipped"),
+    repository: "demo/local-fixture",
+    demoMarker: demoArtifactMarker,
+    steps,
+    writeResults,
+    diagnostics: [],
+    resetPaths: [demoStateDir(repoRoot), path.join(repoRoot, "examples", "demo", "DEMO_OUTPUT.md")],
+    limitations: [
+      "Fixture resume records completion but does not merge a pull request.",
+      "Fixture mode does not wake ChatGPT Web or Codex actors."
+    ]
+  };
+}
+
+export async function runFixtureDemo(repoRoot: string, options: Pick<DemoOptions, "resume" | "approvalText"> = {}): Promise<DemoResult> {
+  if (options.resume) {
+    return resumeFixtureDemo(repoRoot, options.approvalText);
+  }
+
   const { config } = await loadProjectConfig(repoRoot);
   const labels = config.labels;
   const issue: DemoIssueState = { labels: [labels.implementation_ready], comments: [] };
@@ -335,7 +473,14 @@ export async function runFixtureDemo(repoRoot: string): Promise<DemoResult> {
   });
 
   const stateDir = demoStateDir(repoRoot);
-  await mkdir(stateDir, { recursive: true });
+  await savePersistedDemoState(repoRoot, {
+    status: "paused",
+    currentStage: "manual-validation",
+    mergePerformed: false,
+    writeState,
+    steps,
+    writeResults
+  });
   await writeFile(path.join(stateDir, "fixture-result.json"), `${JSON.stringify({ steps, writeResults }, null, 2)}\n`, "utf8");
 
   return {
@@ -407,7 +552,7 @@ export async function runDemo(options: DemoOptions): Promise<DemoResult> {
     return resetDemo(options.repoRoot);
   }
   if (options.fixture || (!options.repository && !options.executeWrites)) {
-    return runFixtureDemo(options.repoRoot);
+    return runFixtureDemo(options.repoRoot, options);
   }
   return runLiveDemoPlan(options);
 }
