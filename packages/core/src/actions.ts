@@ -117,7 +117,7 @@ function failed(action: CoordinatorAction, diagnostics: string[]): ActionExecuti
 function resultFromWrite(action: CoordinatorAction, write: GitHubWriteResult): ActionExecutionResult {
   const result: ActionExecutionResult = {
     action: action.type,
-    eventId: action.eventId,
+    eventId: write.eventId,
     status: write.ok ? "succeeded" : "failed",
     diagnostics: write.diagnostics
   };
@@ -130,6 +130,30 @@ function resultFromWrite(action: CoordinatorAction, write: GitHubWriteResult): A
   }
 
   return result;
+}
+
+function substepAction(action: CoordinatorAction, eventId: string): CoordinatorAction {
+  return { ...action, eventId };
+}
+
+async function executeSubstep(options: {
+  action: CoordinatorAction;
+  eventId: string;
+  state: WriteSessionState;
+  call: () => Promise<GitHubWriteResult>;
+}): Promise<{ state: WriteSessionState; result: ActionExecutionResult }> {
+  if (options.state.handledWriteEvents[options.eventId]?.status === "succeeded") {
+    return {
+      state: options.state,
+      result: skipped(substepAction(options.action, options.eventId), [`Write event has already been handled: ${options.eventId}`])
+    };
+  }
+
+  const result = resultFromWrite(options.action, await options.call());
+  return {
+    state: recordResult(options.state, result),
+    result
+  };
 }
 
 function recordResult(state: WriteSessionState, result: ActionExecutionResult): WriteSessionState {
@@ -148,71 +172,92 @@ function recordResult(state: WriteSessionState, result: ActionExecutionResult): 
   };
 }
 
-async function executeAllowedAction(action: CoordinatorAction, adapter: GitHubWriteAdapter): Promise<ActionExecutionResult[]> {
+async function executeAllowedAction(action: CoordinatorAction, adapter: GitHubWriteAdapter, state: WriteSessionState): Promise<{ state: WriteSessionState; results: ActionExecutionResult[] }> {
   if (action.type === "CREATE_ISSUE") {
-    return [resultFromWrite(action, await adapter.createIssue(action))];
+    const result = resultFromWrite(action, await adapter.createIssue(action));
+    return { state: recordResult(state, result), results: [result] };
   }
 
   if (action.type === "ADD_LABEL") {
-    return [resultFromWrite(action, await adapter.addLabels(action))];
+    const result = resultFromWrite(action, await adapter.addLabels(action));
+    return { state: recordResult(state, result), results: [result] };
   }
 
   if (action.type === "REMOVE_LABEL") {
-    return [resultFromWrite(action, await adapter.removeLabels(action))];
+    const result = resultFromWrite(action, await adapter.removeLabels(action));
+    return { state: recordResult(state, result), results: [result] };
   }
 
   if (action.type === "POST_HANDOFF_COMMENT") {
-    return [resultFromWrite(action, await adapter.postComment({ ...action, body: action.body }))];
+    const result = resultFromWrite(action, await adapter.postComment({ ...action, body: action.body }));
+    return { state: recordResult(state, result), results: [result] };
   }
 
   if (action.type === "UPDATE_ISSUE_STATE") {
-    return [resultFromWrite(action, await adapter.updateIssueState(action))];
+    const result = resultFromWrite(action, await adapter.updateIssueState(action));
+    return { state: recordResult(state, result), results: [result] };
   }
 
   if (action.type === "MARK_REVIEW_READY") {
-    const removeResult = resultFromWrite(
+    const results: ActionExecutionResult[] = [];
+    const addStep = await executeSubstep({
       action,
-      await adapter.removeLabels({
-        repository: action.repository,
-        issueNumber: action.issueNumber,
-        labels: [action.inProgressLabel],
-        eventId: `${action.eventId}:remove-in-progress`
-      })
-    );
-
-    if (removeResult.status !== "succeeded") {
-      return [removeResult];
-    }
-
-    const addResult = resultFromWrite(
-      action,
-      await adapter.addLabels({
+      eventId: `${action.eventId}:add-review-ready`,
+      state,
+      call: () => adapter.addLabels({
         repository: action.repository,
         issueNumber: action.issueNumber,
         labels: [action.reviewReadyLabel],
         eventId: `${action.eventId}:add-review-ready`
       })
-    );
-    const results = [removeResult, addResult];
+    });
+    state = addStep.state;
+    results.push(addStep.result);
 
-    if (addResult.status === "succeeded" && action.commentBody) {
-      results.push(
-        resultFromWrite(
-          action,
-          await adapter.postComment({
-            repository: action.repository,
-            issueNumber: action.issueNumber,
-            body: action.commentBody,
-            eventId: `${action.eventId}:comment`
-          })
-        )
-      );
+    if (addStep.result.status === "failed") {
+      return { state, results };
     }
 
-    return results;
+    const removeStep = await executeSubstep({
+      action,
+      eventId: `${action.eventId}:remove-in-progress`,
+      state,
+      call: () => adapter.removeLabels({
+        repository: action.repository,
+        issueNumber: action.issueNumber,
+        labels: [action.inProgressLabel],
+        eventId: `${action.eventId}:remove-in-progress`
+      })
+    });
+    state = removeStep.state;
+    results.push(removeStep.result);
+
+    if (removeStep.result.status === "failed") {
+      return { state, results };
+    }
+
+    if (action.commentBody) {
+      const commentBody = action.commentBody;
+      const commentStep = await executeSubstep({
+        action,
+        eventId: `${action.eventId}:comment`,
+        state,
+        call: () => adapter.postComment({
+          repository: action.repository,
+          issueNumber: action.issueNumber,
+          body: commentBody,
+          eventId: `${action.eventId}:comment`
+        })
+      });
+      state = commentStep.state;
+      results.push(commentStep.result);
+    }
+
+    return { state, results };
   }
 
-  return [skipped(action, ["No GitHub write is associated with this action."])];
+  const result = skipped(action, ["No GitHub write is associated with this action."]);
+  return { state: recordResult(state, result), results: [result] };
 }
 
 export async function executeCoordinatorAction(options: {
@@ -241,12 +286,7 @@ export async function executeCoordinatorAction(options: {
     return { state: recordResult(state, result), results: [result] };
   }
 
-  const results = await executeAllowedAction(action, adapter);
-  for (const result of results) {
-    state = recordResult(state, result);
-  }
-
-  return { state, results };
+  return executeAllowedAction(action, adapter, state);
 }
 
 export function actionsForCycleDecision(options: {
@@ -272,18 +312,18 @@ export function actionsForCycleDecision(options: {
 
   if (decision.pickup.action === "claim-and-branch") {
     actions.push({
-      type: "REMOVE_LABEL",
-      eventId: `${decision.eventId}:remove-ready`,
-      repository: decision.repository,
-      issueNumber: decision.issue.number,
-      labels: [labels.implementation_ready]
-    });
-    actions.push({
       type: "ADD_LABEL",
       eventId: `${decision.eventId}:add-in-progress`,
       repository: decision.repository,
       issueNumber: decision.issue.number,
       labels: [labels.implementation_in_progress]
+    });
+    actions.push({
+      type: "REMOVE_LABEL",
+      eventId: `${decision.eventId}:remove-ready`,
+      repository: decision.repository,
+      issueNumber: decision.issue.number,
+      labels: [labels.implementation_ready]
     });
   }
 

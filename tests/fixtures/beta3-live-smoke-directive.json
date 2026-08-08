@@ -1,6 +1,6 @@
 {
   "objective": "[BETA 3 LIVE SMOKE] Directive-to-issue idempotency test",
-  "background": "Issue #6 requires a bounded live write smoke test in the coordinator repository before any CDW integration.",
+  "background": "<!-- coordinator:non-actionable-artifact -->\n\nIssue #6 requires a bounded live write smoke test in the coordinator repository before any CDW integration.",
   "approvedScope": [
     "Create one clearly marked GitHub issue through the governed directive-to-issue path.",
     "Apply the configured ready label as part of the issue creation flow.",

@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { GithubSnapshotError } from "../apps/cli/src/github-dry-run.js";
 import { runWatchWithProvider } from "../apps/cli/src/watch-runner.js";
+import type { ActionExecutionResult } from "../packages/core/src/actions.js";
 import type { CycleAuditEvent, SessionStatus, WorkflowRepositorySnapshot } from "../packages/core/src/session.js";
 import type { GitHubWriteAdapter, GitHubWriteResult } from "../packages/github-adapter/src/types.js";
 
@@ -21,6 +22,7 @@ interface WatchResult {
   consecutiveNpf: number;
   stateFile: string | null;
   audits: CycleAuditEvent[];
+  writeResults: ActionExecutionResult[];
 }
 
 async function tempStateFile(): Promise<string> {
@@ -44,7 +46,7 @@ function ok(action: string, eventId: string): GitHubWriteResult {
   return { ok: true, action, eventId, diagnostics: [] };
 }
 
-function writeAdapter(calls: string[]): GitHubWriteAdapter {
+function writeAdapter(calls: string[], fail: Partial<Record<"add" | "remove", boolean>> = {}): GitHubWriteAdapter {
   return {
     async createIssue(input) {
       calls.push(`create:${input.title}`);
@@ -52,10 +54,16 @@ function writeAdapter(calls: string[]): GitHubWriteAdapter {
     },
     async addLabels(input) {
       calls.push(`add:${input.issueNumber}:${input.labels.join(",")}`);
+      if (fail.add) {
+        return { ok: false, action: "ADD_LABEL", eventId: input.eventId, diagnostics: ["add failed"] };
+      }
       return ok("ADD_LABEL", input.eventId);
     },
     async removeLabels(input) {
       calls.push(`remove:${input.issueNumber}:${input.labels.join(",")}`);
+      if (fail.remove) {
+        return { ok: false, action: "REMOVE_LABEL", eventId: input.eventId, diagnostics: ["remove failed"] };
+      }
       return ok("REMOVE_LABEL", input.eventId);
     },
     async postComment(input) {
@@ -340,7 +348,104 @@ test("write-enabled watch applies configured claim labels idempotently", async (
 
   const persisted = JSON.parse(await readFile(writeStateFile, "utf8")) as { handledWriteEvents: Record<string, unknown> };
 
-  assert.deepEqual(calls, ["remove:6:codex-ready", "add:6:codex-in-progress"]);
+  assert.deepEqual(calls, ["add:6:codex-in-progress", "remove:6:codex-ready"]);
   assert.ok(persisted.handledWriteEvents["issue:6:ready:remove-ready"]);
   assert.ok(persisted.handledWriteEvents["issue:6:ready:add-in-progress"]);
+});
+
+test("write-enabled watch fails closed on configured repository mismatch", async () => {
+  const stateFile = await tempStateFile();
+  const writeStateFile = await tempStateFile();
+  const calls: string[] = [];
+  const result = (await runWatchWithProvider(
+    {
+      labels,
+      providerName: "mock-live",
+      repository: "example/other",
+      configuredWriteRepository: "example/allowed",
+      stateFilePath: stateFile,
+      writeStateFilePath: writeStateFile,
+      maxCycles: 1,
+      intervalMs: 0,
+      executeWrites: true,
+      mutationPolicy: { enabled: true, allowed_actions: ["ADD_LABEL", "REMOVE_LABEL"] },
+      writeAdapter: writeAdapter(calls)
+    },
+    async () => snapshot([{ number: 6, title: "Ready", labels: ["codex-ready"], eventId: "issue:6:ready" }])
+  )) as WatchResult;
+
+  assert.equal(result.sessionStatus, "paused");
+  assert.equal(result.audits[0]?.outcome, "HUMAN");
+  assert.equal(result.audits[0]?.reason, "GIT_WRITE_REPOSITORY_MISMATCH");
+  assert.deepEqual(calls, []);
+});
+
+test("write-enabled claim transition stops when first label step fails", async () => {
+  const stateFile = await tempStateFile();
+  const writeStateFile = await tempStateFile();
+  const calls: string[] = [];
+  const result = (await runWatchWithProvider(
+    {
+      labels,
+      providerName: "mock-live",
+      repository: "example/repo",
+      stateFilePath: stateFile,
+      writeStateFilePath: writeStateFile,
+      maxCycles: 1,
+      intervalMs: 0,
+      executeWrites: true,
+      mutationPolicy: { enabled: true, allowed_actions: ["ADD_LABEL", "REMOVE_LABEL"] },
+      writeAdapter: writeAdapter(calls, { add: true })
+    },
+    async () => snapshot([{ number: 6, title: "Ready", labels: ["codex-ready"], eventId: "issue:6:ready" }])
+  )) as WatchResult;
+
+  assert.deepEqual(calls, ["add:6:codex-in-progress"]);
+  assert.equal(result.writeResults[0]?.status, "failed");
+  assert.equal(result.writeResults.length, 1);
+});
+
+test("write-enabled claim transition resumes after second label step failure", async () => {
+  const stateFile = await tempStateFile();
+  const writeStateFile = await tempStateFile();
+  const firstCalls: string[] = [];
+  const ready = snapshot([{ number: 6, title: "Ready", labels: ["codex-ready"], eventId: "issue:6:ready" }]);
+  const first = (await runWatchWithProvider(
+    {
+      labels,
+      providerName: "mock-live",
+      repository: "example/repo",
+      stateFilePath: stateFile,
+      writeStateFilePath: writeStateFile,
+      maxCycles: 1,
+      intervalMs: 0,
+      executeWrites: true,
+      mutationPolicy: { enabled: true, allowed_actions: ["ADD_LABEL", "REMOVE_LABEL"] },
+      writeAdapter: writeAdapter(firstCalls, { remove: true })
+    },
+    async () => ready
+  )) as WatchResult;
+  const secondCalls: string[] = [];
+  const second = (await runWatchWithProvider(
+    {
+      labels,
+      providerName: "mock-live",
+      repository: "example/repo",
+      stateFilePath: stateFile,
+      writeStateFilePath: writeStateFile,
+      maxCycles: 1,
+      intervalMs: 0,
+      executeWrites: true,
+      mutationPolicy: { enabled: true, allowed_actions: ["ADD_LABEL", "REMOVE_LABEL"] },
+      writeAdapter: writeAdapter(secondCalls)
+    },
+    async () => ready
+  )) as WatchResult;
+
+  assert.deepEqual(firstCalls, ["add:6:codex-in-progress", "remove:6:codex-ready"]);
+  assert.equal(first.writeResults[0]?.status, "succeeded");
+  assert.equal(first.writeResults[1]?.status, "failed");
+  assert.deepEqual(secondCalls, ["remove:6:codex-ready"]);
+  assert.equal(second.writeResults[0]?.status, "skipped");
+  assert.equal(second.writeResults[1]?.status, "succeeded");
 });

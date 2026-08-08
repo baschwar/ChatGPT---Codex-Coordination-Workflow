@@ -53,6 +53,14 @@ The GitHub adapter intentionally exposes only named methods for creating issues,
 
 Use `coordinator directive preview` before `coordinator directive create`. For watch runs, omit `--execute-writes` for read-only behavior and add it only after config/policy review. The write-event ledger under `.chatgpt-coordinator/write-events.json` prevents duplicate handling when the same approved event is replayed.
 
+Smoke-test, audit, or evidence issues that must never become implementation work should include the machine-readable marker:
+
+```html
+<!-- coordinator:non-actionable-artifact -->
+```
+
+Ready-labeled issues with that marker are treated as non-actionable artifacts and produce no claim/write actions.
+
 ## Local Git Transport
 
 Codex/local worker Git operations require SSH remotes. HTTPS fallback is a setup error because it can mask broken deploy-key or SSH-agent configuration. This rule applies to the local worker checkout only; GitHub connector authentication remains separate.

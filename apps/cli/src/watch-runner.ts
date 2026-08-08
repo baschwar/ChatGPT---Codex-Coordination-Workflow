@@ -63,6 +63,7 @@ export interface ProviderWatchOptions {
   resume?: boolean;
   executeWrites?: boolean;
   mutationPolicy?: MutationPolicy;
+  configuredWriteRepository?: string;
   writeStateFilePath?: string;
   writeAdapter?: GitHubWriteAdapter;
 }
@@ -205,6 +206,28 @@ export async function runWatchWithProvider(options: ProviderWatchOptions, provid
     };
   }
 
+  if (options.executeWrites && options.repository && options.configuredWriteRepository && options.repository !== options.configuredWriteRepository) {
+    const decision = createHumanSetupDecision(options.repository, "GIT_WRITE_REPOSITORY_MISMATCH", [
+      `Write-enabled watch target ${options.repository} does not match configured repository ${options.configuredWriteRepository}.`
+    ]);
+    const nextState: SessionState = { consecutiveNpf: state.consecutiveNpf, status: "paused" };
+    audits.push(createCycleAuditEvent(decision, state, nextState, true));
+    state = nextState;
+    await saveSessionState(options.stateFilePath, state);
+
+    return {
+      mode: "READ ONLY / DRY RUN",
+      provider: options.providerName,
+      cyclesRun: audits.length,
+      sessionStatus: state.status,
+      consecutiveNpf: state.consecutiveNpf,
+      stateFile: options.stateFilePath ?? null,
+      writeStateFile: options.writeStateFilePath ?? null,
+      writeResults,
+      audits
+    };
+  }
+
   for (let index = 0; index < maxCycles && state.status === "active"; index += 1) {
     try {
       const snapshot = await provider(index);
@@ -224,8 +247,11 @@ export async function runWatchWithProvider(options: ProviderWatchOptions, provid
           );
           writeState = executed.state;
           writeResults.push(...executed.results);
+          await saveWriteState(options.writeStateFilePath as string, writeState);
+          if (executed.results.some((writeResult) => writeResult.status === "failed")) {
+            break;
+          }
         }
-        await saveWriteState(options.writeStateFilePath as string, writeState);
       }
     } catch (error) {
       if (!(error instanceof GithubSnapshotError)) {
@@ -321,6 +347,9 @@ export async function runGithubWatch(options: GithubWatchOptions): Promise<objec
   };
   if (config.github_writes) {
     providerOptions.mutationPolicy = config.github_writes;
+  }
+  if (config.project.repo) {
+    providerOptions.configuredWriteRepository = config.project.repo;
   }
   const snapshotOptions = { repository: options.repository };
 
