@@ -48,7 +48,7 @@ function isAuthFailure(message: string): boolean {
   return /auth|authentication|not logged|login|401|bad credentials/i.test(message);
 }
 
-async function ghJson(args: string[]): Promise<unknown> {
+export async function ghJson(args: string[]): Promise<unknown> {
   try {
     const { stdout } = await execFileAsync("gh", args, { maxBuffer: 1024 * 1024 * 10 });
     return JSON.parse(stdout) as unknown;

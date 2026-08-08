@@ -1,6 +1,6 @@
 # Project Status
 
-Status: Beta 3 review-ready for issue #6.
+Status: Beta 4 in progress for issue #9.
 
 Completed:
 
@@ -28,11 +28,14 @@ Completed:
 - Narrow GitHub write adapter/action surface for issues, labels, comments, and issue state
 - Approved directive-to-issue write path with dry-run and idempotent write-event persistence
 - Write-enabled watch action execution for configured routine claim-label transitions
+- Repository progress and review discovery core
+- Read-only `discover` CLI command
+- Deterministic issue/PR association for explicit references and branch conventions
+- Review-ready, correction-continuation, check-state, governance-file, and non-actionable artifact discovery
 
 Not started:
 
 - MCP server implementation
-- Test-repository integration
 - CDW Studio integration
 - Real launchd installation
 
@@ -45,3 +48,4 @@ Constraints:
 - No automatic workflow-label creation.
 - CDW Studio remains an example configuration only until explicitly approved.
 - GitHub writes are disabled unless repository configuration allows the exact action.
+- Discovery is read-only and must not wake actors, merge pull requests, or treat local validation claims as GitHub CI.
