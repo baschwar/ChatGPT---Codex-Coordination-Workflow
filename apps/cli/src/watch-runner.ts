@@ -4,6 +4,7 @@ import { loadProjectConfig } from "../../../packages/config/src/load.js";
 import {
   actionsForCycleDecision,
   executeCoordinatorAction,
+  type CoordinatorAction,
   type ActionExecutionResult,
   type MutationPolicy
 } from "../../../packages/core/src/actions.js";
@@ -163,6 +164,136 @@ function createHumanSetupDecision(repository: string, reason: string, diagnostic
   };
 }
 
+function createHumanSetupResult(options: {
+  providerName: string;
+  reason: string;
+  diagnostics: string[];
+  state: SessionState;
+  stateFilePath?: string | undefined;
+  writeStateFilePath?: string | undefined;
+  writeResults: ActionExecutionResult[];
+  audits: CycleAuditEvent[];
+  repository?: string | undefined;
+}): { decision: CycleDecision; nextState: SessionState; response: object } {
+  const repository = options.repository ?? "unknown";
+  const decision = createHumanSetupDecision(repository, options.reason, options.diagnostics);
+  const nextState: SessionState = { consecutiveNpf: options.state.consecutiveNpf, status: "paused" };
+  options.audits.push(createCycleAuditEvent(decision, options.state, nextState, true));
+
+  return {
+    decision,
+    nextState,
+    response: {
+      mode: "READ ONLY / DRY RUN",
+      provider: options.providerName,
+      cyclesRun: options.audits.length,
+      sessionStatus: nextState.status,
+      consecutiveNpf: nextState.consecutiveNpf,
+      stateFile: options.stateFilePath ?? null,
+      writeStateFile: options.writeStateFilePath ?? null,
+      writeResults: options.writeResults,
+      audits: options.audits
+    }
+  };
+}
+
+function parseWorkflowEventIdentity(eventId: string): { repository: string; issueNumber: number } | undefined {
+  const [repository, ...parts] = eventId.split("|");
+  if (!repository?.includes("/")) {
+    return undefined;
+  }
+
+  const issuePart = parts.find((part) => part.startsWith("issue:"));
+  const match = /^issue:(\d+)(?::|$)/.exec(issuePart ?? "");
+  if (!match?.[1]) {
+    return undefined;
+  }
+
+  return {
+    repository,
+    issueNumber: Number.parseInt(match[1], 10)
+  };
+}
+
+function recoveryEventMatchesIssue(options: {
+  baseEventId: string;
+  repository: string;
+  issueNumber: number;
+}): boolean {
+  const identity = parseWorkflowEventIdentity(options.baseEventId);
+  return identity?.repository === options.repository && identity.issueNumber === options.issueNumber;
+}
+
+function pendingTransitionActions(options: {
+  snapshot: WorkflowRepositorySnapshot;
+  repository: string;
+  labels: TaskWorkflowLabels;
+  writeState: NonNullable<Awaited<ReturnType<typeof loadWriteState>>>;
+}): CoordinatorAction[] {
+  const actions: CoordinatorAction[] = [];
+  const records = options.writeState.handledWriteEvents;
+
+  for (const issue of options.snapshot.issues) {
+    const issueLabels = new Set(issue.labels);
+
+    for (const [eventId, record] of Object.entries(records)) {
+      if (record.status !== "failed") {
+        continue;
+      }
+
+      if (eventId.endsWith(":remove-ready")) {
+        const baseEventId = eventId.slice(0, -":remove-ready".length);
+        const addEvent = records[`${baseEventId}:add-in-progress`];
+        const matchesIssue = recoveryEventMatchesIssue({
+          baseEventId,
+          repository: options.repository,
+          issueNumber: issue.number
+        });
+        if (
+          matchesIssue &&
+          addEvent?.status === "succeeded" &&
+          issueLabels.has(options.labels.implementation_ready) &&
+          issueLabels.has(options.labels.implementation_in_progress)
+        ) {
+          actions.push({
+            type: "REMOVE_LABEL",
+            eventId,
+            repository: options.repository,
+            issueNumber: issue.number,
+            labels: [options.labels.implementation_ready]
+          });
+        }
+      }
+
+      if (eventId.endsWith(":remove-in-progress")) {
+        const baseEventId = eventId.slice(0, -":remove-in-progress".length);
+        const addEvent = records[`${baseEventId}:add-review-ready`];
+        const matchesIssue = recoveryEventMatchesIssue({
+          baseEventId,
+          repository: options.repository,
+          issueNumber: issue.number
+        });
+        if (
+          matchesIssue &&
+          addEvent?.status === "succeeded" &&
+          issueLabels.has(options.labels.review_ready) &&
+          issueLabels.has(options.labels.implementation_in_progress)
+        ) {
+          actions.push({
+            type: "REMOVE_LABEL",
+            eventId,
+            repository: options.repository,
+            issueNumber: issue.number,
+            labels: [options.labels.implementation_in_progress]
+          });
+        }
+      }
+    }
+  }
+
+  return actions;
+}
+
 export async function runWatchWithProvider(options: ProviderWatchOptions, provider: SnapshotProvider): Promise<object> {
   const inactivityTimeoutMinutes =
     options.inactivityTimeoutMinutes ?? defaultSessionConfig.pollIntervalMinutes * defaultSessionConfig.npfPauseThreshold;
@@ -206,31 +337,74 @@ export async function runWatchWithProvider(options: ProviderWatchOptions, provid
     };
   }
 
-  if (options.executeWrites && options.repository && options.configuredWriteRepository && options.repository !== options.configuredWriteRepository) {
-    const decision = createHumanSetupDecision(options.repository, "GIT_WRITE_REPOSITORY_MISMATCH", [
-      `Write-enabled watch target ${options.repository} does not match configured repository ${options.configuredWriteRepository}.`
-    ]);
-    const nextState: SessionState = { consecutiveNpf: state.consecutiveNpf, status: "paused" };
-    audits.push(createCycleAuditEvent(decision, state, nextState, true));
-    state = nextState;
-    await saveSessionState(options.stateFilePath, state);
-
-    return {
-      mode: "READ ONLY / DRY RUN",
-      provider: options.providerName,
-      cyclesRun: audits.length,
-      sessionStatus: state.status,
-      consecutiveNpf: state.consecutiveNpf,
-      stateFile: options.stateFilePath ?? null,
-      writeStateFile: options.writeStateFilePath ?? null,
+  if (options.executeWrites && !options.configuredWriteRepository) {
+    const setup = createHumanSetupResult({
+      providerName: options.providerName,
+      reason: "GIT_WRITE_REPOSITORY_REQUIRED",
+      diagnostics: ["Write-enabled watch requires config.project.repo / configuredWriteRepository."],
+      state,
+      stateFilePath: options.stateFilePath,
+      writeStateFilePath: options.writeStateFilePath,
       writeResults,
-      audits
-    };
+      audits,
+      repository: options.repository
+    });
+    state = setup.nextState;
+    await saveSessionState(options.stateFilePath, state);
+    return setup.response;
+  }
+
+  if (options.executeWrites && (!options.repository || options.repository !== options.configuredWriteRepository)) {
+    const setup = createHumanSetupResult({
+      providerName: options.providerName,
+      reason: "GIT_WRITE_REPOSITORY_MISMATCH",
+      diagnostics: [
+        `Write-enabled watch target ${options.repository ?? "unknown"} does not match configured repository ${options.configuredWriteRepository}.`
+      ],
+      state,
+      stateFilePath: options.stateFilePath,
+      writeStateFilePath: options.writeStateFilePath,
+      writeResults,
+      audits,
+      repository: options.repository
+    });
+    state = setup.nextState;
+    await saveSessionState(options.stateFilePath, state);
+    return setup.response;
   }
 
   for (let index = 0; index < maxCycles && state.status === "active"; index += 1) {
     try {
       const snapshot = await provider(index);
+      if (options.executeWrites && writeState && options.writeAdapter && options.repository) {
+        const recoveryActions = pendingTransitionActions({
+          snapshot,
+          repository: options.repository,
+          labels: options.labels,
+          writeState
+        });
+
+        if (recoveryActions.length > 0) {
+          for (const action of recoveryActions) {
+            const actionOptions = {
+              action,
+              state: writeState,
+              adapter: options.writeAdapter
+            };
+            const executed = await executeCoordinatorAction(
+              options.mutationPolicy ? { ...actionOptions, policy: options.mutationPolicy } : actionOptions
+            );
+            writeState = executed.state;
+            writeResults.push(...executed.results);
+            await saveWriteState(options.writeStateFilePath as string, writeState);
+            if (executed.results.some((writeResult) => writeResult.status === "failed")) {
+              break;
+            }
+          }
+          await saveSessionState(options.stateFilePath, state);
+          continue;
+        }
+      }
       const result = runCycle(snapshot, options.labels, state, sessionConfig, true);
       state = result.state;
       audits.push(result.audit);
