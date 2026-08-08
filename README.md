@@ -2,7 +2,7 @@
 
 Reusable coordination layer for human-approved implementation work routed through GitHub.
 
-This project is in the Beta 4 progress-discovery phase. The current implementation provides repository-neutral decision logic, fixture simulation, read-only GitHub dry-run inspection, a bounded live watch runner, durable session state, portable configuration, a default-deny GitHub write surface for explicitly approved workflow mutations, and read-only repository discovery for issue/PR continuation and review routing.
+This project is in the Beta 5 first-run demo phase. The current implementation provides repository-neutral decision logic, fixture simulation, read-only GitHub dry-run inspection, a bounded live watch runner, durable session state, portable configuration, a default-deny GitHub write surface for explicitly approved workflow mutations, read-only repository discovery for issue/PR continuation and review routing, and a safe demo command for first-run walkthroughs.
 
 ## Purpose
 
@@ -24,6 +24,7 @@ Approved implementation directives become structured GitHub issues. Implementati
 - Beta 1 macOS runner notes: [docs/setup/macos-runner.md](docs/setup/macos-runner.md)
 - Repository integration guide: [docs/examples/repository-integration.md](docs/examples/repository-integration.md)
 - Discovery architecture: [docs/architecture/discovery.md](docs/architecture/discovery.md)
+- First-run demo walkthrough: [docs/demo/first-run.md](docs/demo/first-run.md)
 
 ## Coordinator Commands
 
@@ -33,6 +34,10 @@ npm run coordinator -- validate
 npm run coordinator -- directive preview tests/fixtures/valid-directive.json "Create the issue"
 npm run coordinator -- directive create tests/fixtures/valid-directive.json "Create the issue" --dry-run
 npm run coordinator -- discover --repo baschwar/ChatGPT---Codex-Coordination-Workflow --json
+npm run coordinator -- demo --fixture
+npm run coordinator -- demo --fixture --json
+npm run coordinator -- demo --repo baschwar/ChatGPT---Codex-Coordination-Workflow --json
+npm run coordinator -- demo --reset
 npm run coordinator -- dry-run --repo baschwar/ChatGPT---Codex-Coordination-Workflow --issue 1
 npm run coordinator -- run --watch --repo baschwar/ChatGPT---Codex-Coordination-Workflow --issue 1 --state-file /tmp/chatgpt-coordinator-live-watch-state.json --interval-ms 1000 --max-cycles 1
 npm run coordinator -- run --watch --repo baschwar/ChatGPT---Codex-Coordination-Workflow --issue 1 --state-file /tmp/chatgpt-coordinator-live-watch-state.json --interval-ms 1000 --max-cycles 1 --execute-writes
@@ -41,6 +46,16 @@ npm run coordinator -- run --watch --fixture tests/fixtures/watch-session.json -
 ```
 
 The default watch and dry-run commands print `READ ONLY / DRY RUN` and do not create or edit labels, comments, branches, issues, pull requests, merges, milestones, or deployments. Write-capable commands require explicit CLI intent plus `github_writes` policy allowing the exact action. Write-event IDs are persisted so replaying the same approved event does not duplicate issues, comments, or label transitions.
+
+## Try The Demo
+
+Start with the fixture demo:
+
+```sh
+npm run coordinator -- demo --fixture
+```
+
+It shows the approved directive, worker pickup, implementation handoff, review correction, corrected review-ready handoff, and manual-validation gate without live GitHub writes or actor wake-up. Demo artifacts carry `<!-- coordinator:demo-artifact -->` and are excluded from normal production pickup unless the dedicated demo command is active.
 
 ## Repository Layout
 
@@ -56,8 +71,10 @@ packages/
   templates/
 examples/
   cdw-studio/
+  demo/
 docs/
   architecture/
+  demo/
   setup/
 tests/
 ```

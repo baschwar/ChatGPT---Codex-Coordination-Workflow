@@ -58,6 +58,10 @@
 
 ## Milestone 5: MCP Server
 
+- Self-contained first-run fixture demo
+- Guarded live demo plan with explicit write opt-in
+- Demo artifact exclusion from normal pickup
+- Demo reset and first-run documentation
 - Tool schemas
 - Authentication setup
 - Input validation

@@ -1,6 +1,6 @@
 # Project Status
 
-Status: Post-Beta 3 write-safety review-ready for issue #11.
+Status: Beta 5 first-run coordinator demo review-ready for issue #12.
 
 Completed:
 
@@ -34,6 +34,9 @@ Completed:
 - Review-ready, correction-continuation, check-state, governance-file, and non-actionable artifact discovery
 - Write-enabled watch fail-closed guard for missing or mismatched configured repository
 - Restart recovery for incomplete governed label transitions from realistic GitHub label state
+- First-run fixture demo command for safe workflow walkthroughs
+- Demo artifact marker excluded from normal production pickup
+- Demo reset helper and first-run walkthrough
 
 Not started:
 
@@ -51,3 +54,4 @@ Constraints:
 - CDW Studio remains an example configuration only until explicitly approved.
 - GitHub writes are disabled unless repository configuration allows the exact action.
 - Discovery is read-only and must not wake actors, merge pull requests, or treat local validation claims as GitHub CI.
+- Demo mode must not fabricate ChatGPT Web or Codex actor wake-up and must stop before merge by default.

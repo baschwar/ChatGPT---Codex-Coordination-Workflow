@@ -130,7 +130,7 @@ interface Candidate {
   result: RepositoryDiscoveryResult;
 }
 
-const nonActionableMarker = /<!--\s*coordinator:non-actionable-artifact\s*-->|\bDo not implement the smoke-test issue as product work\./i;
+const nonActionableMarker = /<!--\s*coordinator:(?:non-actionable-artifact|demo-artifact)\s*-->|\bDo not implement the smoke-test issue as product work\./i;
 const correctionPattern = /\b(CHANGES_REQUESTED|changes requested|requested changes|requested corrections|corrections|resume PR|continue beta|continue implementation|coding correction)\b/i;
 const reviewReadyPattern = /\bCHAT REVIEW READY\b/i;
 
