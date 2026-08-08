@@ -197,6 +197,33 @@ function createHumanSetupResult(options: {
   };
 }
 
+function parseWorkflowEventIdentity(eventId: string): { repository: string; issueNumber: number } | undefined {
+  const [repository, ...parts] = eventId.split("|");
+  if (!repository?.includes("/")) {
+    return undefined;
+  }
+
+  const issuePart = parts.find((part) => part.startsWith("issue:"));
+  const match = /^issue:(\d+)(?::|$)/.exec(issuePart ?? "");
+  if (!match?.[1]) {
+    return undefined;
+  }
+
+  return {
+    repository,
+    issueNumber: Number.parseInt(match[1], 10)
+  };
+}
+
+function recoveryEventMatchesIssue(options: {
+  baseEventId: string;
+  repository: string;
+  issueNumber: number;
+}): boolean {
+  const identity = parseWorkflowEventIdentity(options.baseEventId);
+  return identity?.repository === options.repository && identity.issueNumber === options.issueNumber;
+}
+
 function pendingTransitionActions(options: {
   snapshot: WorkflowRepositorySnapshot;
   repository: string;
@@ -217,7 +244,11 @@ function pendingTransitionActions(options: {
       if (eventId.endsWith(":remove-ready")) {
         const baseEventId = eventId.slice(0, -":remove-ready".length);
         const addEvent = records[`${baseEventId}:add-in-progress`];
-        const matchesIssue = issue.eventId === baseEventId || baseEventId.includes(`issue:${issue.number}`);
+        const matchesIssue = recoveryEventMatchesIssue({
+          baseEventId,
+          repository: options.repository,
+          issueNumber: issue.number
+        });
         if (
           matchesIssue &&
           addEvent?.status === "succeeded" &&
@@ -237,7 +268,11 @@ function pendingTransitionActions(options: {
       if (eventId.endsWith(":remove-in-progress")) {
         const baseEventId = eventId.slice(0, -":remove-in-progress".length);
         const addEvent = records[`${baseEventId}:add-review-ready`];
-        const matchesIssue = issue.eventId === baseEventId || baseEventId.includes(`issue:${issue.number}`);
+        const matchesIssue = recoveryEventMatchesIssue({
+          baseEventId,
+          repository: options.repository,
+          issueNumber: issue.number
+        });
         if (
           matchesIssue &&
           addEvent?.status === "succeeded" &&
