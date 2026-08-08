@@ -1,0 +1,97 @@
+[
+  {
+    "name": "ready-without-pr",
+    "snapshot": {
+      "repository": "example/repo",
+      "issues": [{ "number": 1, "title": "Ready task", "labels": ["codex-ready"] }]
+    },
+    "expectedOutcome": "ACTION",
+    "expectedAction": "claim-and-branch",
+    "expectedReason": "new-ready-issue"
+  },
+  {
+    "name": "ready-with-open-pr",
+    "snapshot": {
+      "repository": "example/repo",
+      "issues": [
+        {
+          "number": 2,
+          "title": "Ready task with PR",
+          "labels": ["codex-ready"],
+          "relatedPullRequests": [{ "state": "open", "branch": "codex/issue-2", "url": "https://example.invalid/pr/2" }]
+        }
+      ]
+    },
+    "expectedOutcome": "ACTION",
+    "expectedAction": "resume-open-pr",
+    "expectedReason": "ready-issue-has-open-pr"
+  },
+  {
+    "name": "in-progress",
+    "snapshot": {
+      "repository": "example/repo",
+      "issues": [{ "number": 3, "title": "Claimed task", "labels": ["codex-in-progress"] }]
+    },
+    "expectedOutcome": "NPF",
+    "expectedAction": "wait",
+    "expectedReason": "no-actionable-workflow-state"
+  },
+  {
+    "name": "manual-validation",
+    "snapshot": {
+      "repository": "example/repo",
+      "issues": [{ "number": 4, "title": "Needs manual validation", "labels": ["manual-validation"] }]
+    },
+    "expectedOutcome": "HUMAN",
+    "expectedAction": "wait",
+    "expectedReason": "manual-validation-awaiting-human"
+  },
+  {
+    "name": "manual-validation-correction",
+    "snapshot": {
+      "repository": "example/repo",
+      "issues": [
+        {
+          "number": 5,
+          "title": "Needs correction",
+          "labels": ["manual-validation"],
+          "hasCodingCorrectionRequest": true,
+          "relatedPullRequests": [{ "state": "open", "branch": "codex/issue-5" }]
+        }
+      ]
+    },
+    "expectedOutcome": "ACTION",
+    "expectedAction": "resume-correction",
+    "expectedReason": "manual-validation-coding-correction"
+  },
+  {
+    "name": "chat-review-ready",
+    "snapshot": {
+      "repository": "example/repo",
+      "issues": [{ "number": 6, "title": "Needs chat review", "labels": ["chat-review-ready"] }]
+    },
+    "expectedOutcome": "NPF",
+    "expectedAction": "wait",
+    "expectedReason": "no-actionable-workflow-state"
+  },
+  {
+    "name": "conflicting-labels",
+    "snapshot": {
+      "repository": "example/repo",
+      "issues": [{ "number": 7, "title": "Conflicting state", "labels": ["codex-ready", "chat-review-ready"] }]
+    },
+    "expectedOutcome": "HUMAN",
+    "expectedAction": "wait",
+    "expectedReason": "conflicting-workflow-labels"
+  },
+  {
+    "name": "empty-queue",
+    "snapshot": {
+      "repository": "example/repo",
+      "issues": []
+    },
+    "expectedOutcome": "NPF",
+    "expectedAction": "wait",
+    "expectedReason": "no-eligible-open-work"
+  }
+]

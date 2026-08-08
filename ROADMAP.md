@@ -11,6 +11,11 @@
 - Local GitHub adapter design
 - Read-only project-context command
 - Directive-to-issue preview command
+- Beta 1 decision/session engine
+- Fixture simulator
+- Read-only self-repo dry run
+- Live read-only GitHub watch runner
+- Persisted and explicitly resumable session state
 
 ## Milestone 2: Approved Issue Creation
 
@@ -21,6 +26,7 @@
 - Duplicate-task detection
 - Dry-run support
 - Audit record
+- Explicit workflow-label setup command
 
 ## Milestone 3: Progress And Review Discovery
 
@@ -47,4 +53,3 @@
 - Validate against a dedicated test repository first
 - Preserve explicit human approval gates
 - Do not modify active CDW workflows without explicit approval
-
