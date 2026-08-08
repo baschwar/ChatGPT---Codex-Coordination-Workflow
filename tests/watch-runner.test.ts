@@ -6,6 +6,7 @@ import path from "node:path";
 import { GithubSnapshotError } from "../apps/cli/src/github-dry-run.js";
 import { runWatchWithProvider } from "../apps/cli/src/watch-runner.js";
 import type { CycleAuditEvent, SessionStatus, WorkflowRepositorySnapshot } from "../packages/core/src/session.js";
+import type { GitHubWriteAdapter, GitHubWriteResult } from "../packages/github-adapter/src/types.js";
 
 const labels = {
   implementation_ready: "codex-ready",
@@ -36,6 +37,35 @@ function snapshot(issues: WorkflowRepositorySnapshot["issues"]): WorkflowReposit
     repository: "example/repo",
     repositoryLabels: ["codex-ready", "codex-in-progress", "manual-validation", "chat-review-ready"],
     issues
+  };
+}
+
+function ok(action: string, eventId: string): GitHubWriteResult {
+  return { ok: true, action, eventId, diagnostics: [] };
+}
+
+function writeAdapter(calls: string[]): GitHubWriteAdapter {
+  return {
+    async createIssue(input) {
+      calls.push(`create:${input.title}`);
+      return ok("CREATE_ISSUE", input.eventId);
+    },
+    async addLabels(input) {
+      calls.push(`add:${input.issueNumber}:${input.labels.join(",")}`);
+      return ok("ADD_LABEL", input.eventId);
+    },
+    async removeLabels(input) {
+      calls.push(`remove:${input.issueNumber}:${input.labels.join(",")}`);
+      return ok("REMOVE_LABEL", input.eventId);
+    },
+    async postComment(input) {
+      calls.push(`comment:${input.issueNumber}`);
+      return ok("POST_HANDOFF_COMMENT", input.eventId);
+    },
+    async updateIssueState(input) {
+      calls.push(`state:${input.issueNumber}:${input.state}`);
+      return ok("UPDATE_ISSUE_STATE", input.eventId);
+    }
   };
 }
 
@@ -269,4 +299,48 @@ test("repository watch provider persists meaningful event identity across runs",
   assert.equal(persisted.lastProcessedEventId, "pr:1:head:b");
   assert.equal(typeof persisted.lastMeaningfulActivityAt, "string");
   assert.notEqual(persisted.lastMeaningfulActivityAt, "2026-08-08T00:00:00.000Z");
+});
+
+test("write-enabled watch applies configured claim labels idempotently", async () => {
+  const stateFile = await tempStateFile();
+  const writeStateFile = await tempStateFile();
+  const calls: string[] = [];
+  const ready = snapshot([{ number: 6, title: "Ready", labels: ["codex-ready"], eventId: "issue:6:ready" }]);
+
+  await runWatchWithProvider(
+    {
+      labels,
+      providerName: "mock-live",
+      repository: "example/repo",
+      stateFilePath: stateFile,
+      writeStateFilePath: writeStateFile,
+      maxCycles: 1,
+      intervalMs: 0,
+      executeWrites: true,
+      mutationPolicy: { enabled: true, allowed_actions: ["ADD_LABEL", "REMOVE_LABEL"] },
+      writeAdapter: writeAdapter(calls)
+    },
+    async () => ready
+  );
+  await runWatchWithProvider(
+    {
+      labels,
+      providerName: "mock-live",
+      repository: "example/repo",
+      stateFilePath: stateFile,
+      writeStateFilePath: writeStateFile,
+      maxCycles: 1,
+      intervalMs: 0,
+      executeWrites: true,
+      mutationPolicy: { enabled: true, allowed_actions: ["ADD_LABEL", "REMOVE_LABEL"] },
+      writeAdapter: writeAdapter(calls)
+    },
+    async () => ready
+  );
+
+  const persisted = JSON.parse(await readFile(writeStateFile, "utf8")) as { handledWriteEvents: Record<string, unknown> };
+
+  assert.deepEqual(calls, ["remove:6:codex-ready", "add:6:codex-in-progress"]);
+  assert.ok(persisted.handledWriteEvents["issue:6:ready:remove-ready"]);
+  assert.ok(persisted.handledWriteEvents["issue:6:ready:add-in-progress"]);
 });

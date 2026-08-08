@@ -1,5 +1,7 @@
 import { fileURLToPath } from "node:url";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { createDirectiveIssue } from "./directive-create.js";
 import { githubDryRun } from "./github-dry-run.js";
 import type { GithubDryRunOptions } from "./github-dry-run.js";
 import { getProjectContext } from "./project-context.js";
@@ -8,12 +10,14 @@ import { runFixtureWatch, runGithubWatch } from "./watch-runner.js";
 import type { FixtureWatchOptions, GithubWatchOptions } from "./watch-runner.js";
 import { loadProjectConfig } from "../../../packages/config/src/load.js";
 
-export type CliCommand = "get-project-context" | "validate" | "preview-directive" | "dry-run" | "run";
+export type CliCommand = "get-project-context" | "validate" | "preview-directive" | "directive" | "session" | "dry-run" | "run";
 
 export const plannedCliCommands: CliCommand[] = [
   "get-project-context",
   "validate",
   "preview-directive",
+  "directive",
+  "session",
   "dry-run",
   "run"
 ];
@@ -26,6 +30,19 @@ function readOption(args: string[], name: string): string | undefined {
   }
 
   return args[index + 1];
+}
+
+function readPositionalText(args: string[]): string {
+  const parts: string[] = [];
+
+  for (const arg of args) {
+    if (arg.startsWith("--")) {
+      break;
+    }
+    parts.push(arg);
+  }
+
+  return parts.join(" ");
 }
 
 async function main(args: string[]): Promise<void> {
@@ -51,6 +68,7 @@ async function main(args: string[]): Promise<void> {
           roles: result.config.roles,
           polling: result.config.polling,
           localWorkerTransport: result.config.local_worker_transport,
+          githubWrites: result.config.github_writes ?? { enabled: false, allowed_actions: [] },
           localGitTransport: context.localGitTransport
         },
         null,
@@ -80,6 +98,65 @@ async function main(args: string[]): Promise<void> {
     console.log(JSON.stringify(result, null, 2));
     process.exitCode = 1;
     return;
+  }
+
+  if (command === "directive") {
+    const [subcommand, directivePath, ...approvalParts] = rest;
+    const repoRoot = readOption(rest, "--repo-root") ?? process.cwd();
+    const eventId = readOption(rest, "--event-id");
+    const stateFilePath = readOption(rest, "--state-file");
+    const dryRun = subcommand === "preview" || rest.includes("--dry-run");
+    const approvalText = readPositionalText(approvalParts);
+
+    if ((subcommand !== "preview" && subcommand !== "create") || !directivePath) {
+      throw new Error("Usage: directive (preview|create) <directive.json> <approval text> [--dry-run] [--event-id <id>] [--state-file <path>]");
+    }
+
+    const result = await createDirectiveIssue({
+      repoRoot,
+      directivePath: path.resolve(directivePath),
+      approvalText,
+      dryRun,
+      ...(eventId ? { eventId } : {}),
+      ...(stateFilePath ? { stateFilePath: path.resolve(stateFilePath) } : {})
+    });
+
+    console.log(JSON.stringify(result, null, 2));
+    if (!result.valid) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (command === "session") {
+    const [subcommand] = rest;
+    const repoRoot = readOption(rest, "--repo-root") ?? process.cwd();
+    const stateFilePath = path.resolve(readOption(rest, "--state-file") ?? path.join(repoRoot, ".chatgpt-coordinator", "session-state.json"));
+
+    if (subcommand === "status") {
+      try {
+        console.log(await readFile(stateFilePath, "utf8"));
+      } catch (error) {
+        if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+          console.log(JSON.stringify({ consecutiveNpf: 0, status: "active" }, null, 2));
+        } else {
+          throw error;
+        }
+      }
+      return;
+    }
+
+    if (subcommand === "resume") {
+      const raw = await readFile(stateFilePath, "utf8");
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const resumed: Record<string, unknown> = { ...parsed, consecutiveNpf: 0, status: "active" };
+      delete resumed.currentHumanGate;
+      await writeFile(stateFilePath, `${JSON.stringify(resumed, null, 2)}\n`, "utf8");
+      console.log(JSON.stringify(resumed, null, 2));
+      return;
+    }
+
+    throw new Error("Usage: session (status|resume) [--state-file <path>]");
   }
 
   if (command === "dry-run") {
@@ -125,7 +202,9 @@ async function main(args: string[]): Promise<void> {
     const intervalMs = readOption(rest, "--interval-ms");
     const npfPauseThreshold = readOption(rest, "--npf-threshold");
     const stateFile = readOption(rest, "--state-file");
+    const writeStateFile = readOption(rest, "--write-state-file");
     const resume = rest.includes("--resume");
+    const executeWrites = rest.includes("--execute-writes");
 
     if (!fixture && !repository) {
       throw new Error(
@@ -137,7 +216,10 @@ async function main(args: string[]): Promise<void> {
       throw new Error("Choose either --repo for live GitHub watch or --fixture for fixture replay, not both");
     }
 
-    const sharedOptions: Pick<FixtureWatchOptions, "maxCycles" | "intervalMs" | "npfPauseThreshold" | "stateFilePath" | "resume"> = {};
+    const sharedOptions: Pick<
+      FixtureWatchOptions & GithubWatchOptions,
+      "maxCycles" | "intervalMs" | "npfPauseThreshold" | "stateFilePath" | "writeStateFilePath" | "resume" | "executeWrites"
+    > = {};
     if (maxCycles) {
       sharedOptions.maxCycles = Number.parseInt(maxCycles, 10);
     }
@@ -150,8 +232,14 @@ async function main(args: string[]): Promise<void> {
     if (stateFile) {
       sharedOptions.stateFilePath = path.resolve(stateFile);
     }
+    if (writeStateFile) {
+      sharedOptions.writeStateFilePath = path.resolve(writeStateFile);
+    }
     if (resume) {
       sharedOptions.resume = true;
+    }
+    if (executeWrites) {
+      sharedOptions.executeWrites = true;
     }
 
     if (fixture) {

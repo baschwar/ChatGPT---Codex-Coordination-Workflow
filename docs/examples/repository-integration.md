@@ -12,7 +12,9 @@ To add the coordinator to a repository:
 8. Run config validation with `npm run coordinator -- validate`.
 9. Test issue preview with a non-production directive.
 10. Run a read-only watch smoke test before enabling any write-capable adapter.
-11. Create issues only after explicit human approval.
+11. Add `github_writes` only for the exact routine mutations this repository permits.
+12. Create issues only after explicit human approval.
+13. Confirm replay/idempotency with the same event ID before trusting unattended writes.
 
 ## GitHub App, MCP Server, Custom App, Custom GPT
 
@@ -39,6 +41,17 @@ Bike Party is an intended future portability test. It should get its own configu
 The coordinator remains CLI/headless-first. A service supervisor should launch the same TypeScript/Node CLI command a person can run in a terminal. The durable session state file survives process shutdown, so stopping a polling process does not discard the active coordination session.
 
 Actor invocation is a separate adapter boundary. If no actor transport is configured, the coordinator reports the decision and leaves GitHub/session state safe; it does not claim it can wake a ChatGPT Web conversation.
+
+## Governed Writes
+
+Write-capable operation uses two gates:
+
+- configuration must allow the exact action in `github_writes.allowed_actions`
+- protected transitions, such as creating an implementation issue, must also receive explicit approval
+
+The GitHub adapter intentionally exposes only named methods for creating issues, adding/removing labels, posting comments, and updating issue state where policy allows. It does not expose arbitrary REST mutation to core workflow logic.
+
+Use `coordinator directive preview` before `coordinator directive create`. For watch runs, omit `--execute-writes` for read-only behavior and add it only after config/policy review. The write-event ledger under `.chatgpt-coordinator/write-events.json` prevents duplicate handling when the same approved event is replayed.
 
 ## Local Git Transport
 

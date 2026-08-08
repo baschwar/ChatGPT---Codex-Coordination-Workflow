@@ -27,5 +27,16 @@ export interface ProjectCoordinatorConfig {
     git_protocol: "ssh";
     https_fallback: "disabled";
   };
+  github_writes?: {
+    enabled: boolean;
+    allowed_actions: Array<
+      | "CREATE_ISSUE"
+      | "ADD_LABEL"
+      | "REMOVE_LABEL"
+      | "POST_HANDOFF_COMMENT"
+      | "MARK_REVIEW_READY"
+      | "UPDATE_ISSUE_STATE"
+    >;
+  };
   approval_gates: Record<string, "explicit" | "disabled">;
 }

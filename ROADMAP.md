@@ -30,16 +30,18 @@
 - Public-source readiness audit
 - Integration guide
 
-## Milestone 3: Approved Issue Creation
+## Milestone 3: Governed GitHub Write-Capable Coordinator
 
-- Explicit approval input
-- Directive validation
-- GitHub issue creation
-- Label application
-- Duplicate-task detection
-- Dry-run support
-- Audit record
-- Explicit workflow-label setup command
+- Default-deny mutation policy
+- Narrow typed GitHub write adapter
+- Explicit workflow action execution layer
+- Approved directive validation and GitHub issue creation
+- Ready-label application through governed writes
+- Idempotent write-event/session ledger
+- Structured handoff/comment actions
+- Dry-run support for directive creation
+- Write-enabled watch mode for configured routine transitions
+- Live write smoke testing in the coordinator repository
 
 ## Milestone 4: Progress And Review Discovery
 

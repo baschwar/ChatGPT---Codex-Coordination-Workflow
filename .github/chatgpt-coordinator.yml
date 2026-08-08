@@ -30,6 +30,15 @@ local_worker_transport:
   git_protocol: ssh
   https_fallback: disabled
 
+github_writes:
+  enabled: true
+  allowed_actions:
+    - CREATE_ISSUE
+    - ADD_LABEL
+    - REMOVE_LABEL
+    - POST_HANDOFF_COMMENT
+    - MARK_REVIEW_READY
+
 approval_gates:
   create_implementation_issue: explicit
   merge_pull_request: explicit

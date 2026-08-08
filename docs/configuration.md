@@ -41,6 +41,10 @@ local_worker_transport:
   git_protocol: ssh
   https_fallback: disabled
 
+github_writes:
+  enabled: false
+  allowed_actions: []
+
 approval_gates:
   create_implementation_issue: explicit
   merge_pull_request: explicit
@@ -70,6 +74,27 @@ approval_gates:
 `polling.interval_minutes` controls the default watch cadence. `polling.inactivity_timeout_minutes` controls when meaningful inactivity pauses active polling. The default example remains equivalent to six quiet cycles at a ten-minute interval.
 
 Polling alone is not meaningful activity. ACTION outcomes, new relevant task/PR state, review handoffs, and approved responses can reset the inactivity window; idle NPF cycles do not.
+
+## GitHub Writes
+
+GitHub mutations are default-deny. If `github_writes` is omitted or `enabled` is `false`, the coordinator may still inspect state and render previews, but write actions fail closed before reaching the adapter.
+
+Repositories opt in by listing exact allowed actions:
+
+```yaml
+github_writes:
+  enabled: true
+  allowed_actions:
+    - CREATE_ISSUE
+    - ADD_LABEL
+    - REMOVE_LABEL
+    - POST_HANDOFF_COMMENT
+    - MARK_REVIEW_READY
+```
+
+The supported Beta 3 action vocabulary is `CREATE_ISSUE`, `ADD_LABEL`, `REMOVE_LABEL`, `POST_HANDOFF_COMMENT`, `MARK_REVIEW_READY`, and `UPDATE_ISSUE_STATE`. Approval gates still apply separately; for example, implementation issue creation requires explicit approval at the CLI/API boundary even when `CREATE_ISSUE` is allowed.
+
+NPF performs no write. HUMAN/gated states pause unless an explicitly allowed, policy-validated action is supplied. The runtime persists handled write event IDs so retries and restarts do not duplicate issue creation, comments, or label transitions.
 
 ## Local Worker Git Transport
 

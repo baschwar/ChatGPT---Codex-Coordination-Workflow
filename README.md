@@ -2,7 +2,7 @@
 
 Reusable coordination layer for human-approved implementation work routed through GitHub.
 
-This project is in the Beta 2 portability phase. The current implementation provides repository-neutral decision logic, fixture simulation, read-only GitHub dry-run inspection, a bounded live watch runner, durable session state, and portable configuration before enabling GitHub mutations.
+This project is in the Beta 3 governed-write phase. The current implementation provides repository-neutral decision logic, fixture simulation, read-only GitHub dry-run inspection, a bounded live watch runner, durable session state, portable configuration, and a default-deny GitHub write surface for explicitly approved workflow mutations.
 
 ## Purpose
 
@@ -29,13 +29,16 @@ Approved implementation directives become structured GitHub issues. Implementati
 ```sh
 npm test
 npm run coordinator -- validate
+npm run coordinator -- directive preview tests/fixtures/valid-directive.json "Create the issue"
+npm run coordinator -- directive create tests/fixtures/valid-directive.json "Create the issue" --dry-run
 npm run coordinator -- dry-run --repo baschwar/ChatGPT---Codex-Coordination-Workflow --issue 1
 npm run coordinator -- run --watch --repo baschwar/ChatGPT---Codex-Coordination-Workflow --issue 1 --state-file /tmp/chatgpt-coordinator-live-watch-state.json --interval-ms 1000 --max-cycles 1
+npm run coordinator -- run --watch --repo baschwar/ChatGPT---Codex-Coordination-Workflow --issue 1 --state-file /tmp/chatgpt-coordinator-live-watch-state.json --interval-ms 1000 --max-cycles 1 --execute-writes
 npm run coordinator -- run --watch --repo baschwar/ChatGPT---Codex-Coordination-Workflow --issue 1 --state-file /tmp/chatgpt-coordinator-live-watch-state.json --interval-ms 1000 --max-cycles 1 --resume
 npm run coordinator -- run --watch --fixture tests/fixtures/watch-session.json --interval-ms 1000 --max-cycles 8
 ```
 
-The dry-run commands print `READ ONLY / DRY RUN` and do not create or edit labels, comments, branches, issues, pull requests, merges, milestones, or deployments.
+The default watch and dry-run commands print `READ ONLY / DRY RUN` and do not create or edit labels, comments, branches, issues, pull requests, merges, milestones, or deployments. Write-capable commands require explicit CLI intent plus `github_writes` policy allowing the exact action. Write-event IDs are persisted so replaying the same approved event does not duplicate issues, comments, or label transitions.
 
 ## Repository Layout
 
@@ -59,4 +62,4 @@ tests/
 
 ## Non-Goals For Initial Release
 
-The first release does not automatically merge pull requests, deploy code, advance milestones, mark manual validation complete, mark physical validation complete, create workflow labels, or operate on arbitrary repositories without explicit installation and configuration.
+The first release does not automatically merge pull requests, deploy code, advance milestones, mark manual validation complete, mark physical validation complete, wake ChatGPT/Codex actors, create workflow labels except through explicitly invoked GitHub tooling, or operate on arbitrary repositories without explicit installation and configuration.
