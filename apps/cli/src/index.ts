@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createDirectiveIssue } from "./directive-create.js";
+import { formatDiscoveryResult, githubDiscover } from "./github-discovery.js";
 import { githubDryRun } from "./github-dry-run.js";
 import type { GithubDryRunOptions } from "./github-dry-run.js";
 import { getProjectContext } from "./project-context.js";
@@ -10,7 +11,7 @@ import { runFixtureWatch, runGithubWatch } from "./watch-runner.js";
 import type { FixtureWatchOptions, GithubWatchOptions } from "./watch-runner.js";
 import { loadProjectConfig } from "../../../packages/config/src/load.js";
 
-export type CliCommand = "get-project-context" | "validate" | "preview-directive" | "directive" | "session" | "dry-run" | "run";
+export type CliCommand = "get-project-context" | "validate" | "preview-directive" | "directive" | "session" | "dry-run" | "discover" | "run";
 
 export const plannedCliCommands: CliCommand[] = [
   "get-project-context",
@@ -19,6 +20,7 @@ export const plannedCliCommands: CliCommand[] = [
   "directive",
   "session",
   "dry-run",
+  "discover",
   "run"
 ];
 
@@ -184,6 +186,33 @@ async function main(args: string[]): Promise<void> {
         2
       )
     );
+    return;
+  }
+
+  if (command === "discover") {
+    const repository = readOption(rest, "--repo");
+    const repoRoot = readOption(rest, "--repo-root") ?? process.cwd();
+    const stateFile = readOption(rest, "--state-file");
+    const lastEventId = readOption(rest, "--last-event-id");
+    const json = rest.includes("--json");
+
+    if (!repository) {
+      throw new Error("Usage: discover --repo <owner/repo> [--json] [--state-file <path>] [--last-event-id <id>] [--repo-root <path>]");
+    }
+
+    const result = await githubDiscover({
+      repoRoot,
+      repository,
+      ...(stateFile ? { stateFilePath: path.resolve(stateFile) } : {}),
+      ...(lastEventId ? { lastProcessedEventId: lastEventId } : {})
+    });
+
+    if (json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    process.stdout.write(formatDiscoveryResult(result));
     return;
   }
 

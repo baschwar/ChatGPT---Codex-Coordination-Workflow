@@ -52,6 +52,9 @@
 - Governance-file loading
 - Structured review summaries
 - GitHub review comments
+- Existing PR correction continuation detection
+- Explicit non-actionable artifact exclusion
+- Read-only discovery CLI and JSON result shape
 
 ## Milestone 5: MCP Server
 

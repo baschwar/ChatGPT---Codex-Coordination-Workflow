@@ -2,7 +2,7 @@
 
 Reusable coordination layer for human-approved implementation work routed through GitHub.
 
-This project is in the Beta 3 governed-write phase. The current implementation provides repository-neutral decision logic, fixture simulation, read-only GitHub dry-run inspection, a bounded live watch runner, durable session state, portable configuration, and a default-deny GitHub write surface for explicitly approved workflow mutations.
+This project is in the Beta 4 progress-discovery phase. The current implementation provides repository-neutral decision logic, fixture simulation, read-only GitHub dry-run inspection, a bounded live watch runner, durable session state, portable configuration, a default-deny GitHub write surface for explicitly approved workflow mutations, and read-only repository discovery for issue/PR continuation and review routing.
 
 ## Purpose
 
@@ -23,6 +23,7 @@ Approved implementation directives become structured GitHub issues. Implementati
 - Proposed MCP tool interface: [docs/architecture/mcp-tools.md](docs/architecture/mcp-tools.md)
 - Beta 1 macOS runner notes: [docs/setup/macos-runner.md](docs/setup/macos-runner.md)
 - Repository integration guide: [docs/examples/repository-integration.md](docs/examples/repository-integration.md)
+- Discovery architecture: [docs/architecture/discovery.md](docs/architecture/discovery.md)
 
 ## Coordinator Commands
 
@@ -31,6 +32,7 @@ npm test
 npm run coordinator -- validate
 npm run coordinator -- directive preview tests/fixtures/valid-directive.json "Create the issue"
 npm run coordinator -- directive create tests/fixtures/valid-directive.json "Create the issue" --dry-run
+npm run coordinator -- discover --repo baschwar/ChatGPT---Codex-Coordination-Workflow --json
 npm run coordinator -- dry-run --repo baschwar/ChatGPT---Codex-Coordination-Workflow --issue 1
 npm run coordinator -- run --watch --repo baschwar/ChatGPT---Codex-Coordination-Workflow --issue 1 --state-file /tmp/chatgpt-coordinator-live-watch-state.json --interval-ms 1000 --max-cycles 1
 npm run coordinator -- run --watch --repo baschwar/ChatGPT---Codex-Coordination-Workflow --issue 1 --state-file /tmp/chatgpt-coordinator-live-watch-state.json --interval-ms 1000 --max-cycles 1 --execute-writes

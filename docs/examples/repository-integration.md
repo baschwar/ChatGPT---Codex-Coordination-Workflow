@@ -15,6 +15,7 @@ To add the coordinator to a repository:
 11. Add `github_writes` only for the exact routine mutations this repository permits.
 12. Create issues only after explicit human approval.
 13. Confirm replay/idempotency with the same event ID before trusting unattended writes.
+14. Run read-only discovery with `npm run coordinator -- discover --repo owner/repo --json`.
 
 ## GitHub App, MCP Server, Custom App, Custom GPT
 
@@ -60,6 +61,21 @@ Smoke-test, audit, or evidence issues that must never become implementation work
 ```
 
 Ready-labeled issues with that marker are treated as non-actionable artifacts and produce no claim/write actions.
+
+## Discovery
+
+Use `coordinator discover` to inspect repository progress before deciding whether Codex or ChatGPT should act. Discovery checks open implementation-ready issues, review-ready issues, existing PR corrections, explicit issue/PR references, PR head/check state, and configured governance files.
+
+Discovery precedence is:
+
+1. fail closed on ambiguous deterministic PR associations
+2. resume an existing PR with requested corrections
+3. claim a new ready issue
+4. surface review-ready work for ChatGPT
+5. keep non-actionable artifacts visible but out of implementation flow
+6. report no pending work when nothing meaningful changed
+
+Discovery is read-only and does not require `github_writes`. It does not treat local validation text as GitHub CI; no check runs are reported as `no-check-runs`.
 
 ## Local Git Transport
 
