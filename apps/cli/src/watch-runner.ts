@@ -3,6 +3,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { loadProjectConfig } from "../../../packages/config/src/load.js";
 import {
   createCycleAuditEvent,
+  createDurableSessionState,
+  createSessionConfig,
   defaultSessionConfig,
   runCycle,
   type CycleAuditEvent,
@@ -42,7 +44,9 @@ export interface ProviderWatchOptions {
   stateFilePath?: string;
   maxCycles?: number;
   intervalMs?: number;
+  pollIntervalMinutes?: number;
   npfPauseThreshold?: number;
+  inactivityTimeoutMinutes?: number;
   resume?: boolean;
 }
 
@@ -63,12 +67,38 @@ function isSessionState(value: unknown): value is SessionState {
     return false;
   }
 
-  const candidate = value as { consecutiveNpf?: unknown; status?: unknown };
+  const candidate = value as {
+    consecutiveNpf?: unknown;
+    status?: unknown;
+    repository?: unknown;
+    activeIssueNumber?: unknown;
+    nextActor?: unknown;
+    lastMeaningfulActivityAt?: unknown;
+    inactivityTimeoutMinutes?: unknown;
+    currentHumanGate?: unknown;
+    lastProcessedEventId?: unknown;
+  };
   return (
     typeof candidate.consecutiveNpf === "number" &&
     Number.isInteger(candidate.consecutiveNpf) &&
     candidate.consecutiveNpf >= 0 &&
-    (candidate.status === "active" || candidate.status === "paused")
+    (candidate.status === "active" || candidate.status === "paused") &&
+    (candidate.repository === undefined || typeof candidate.repository === "string") &&
+    (candidate.activeIssueNumber === undefined || typeof candidate.activeIssueNumber === "number") &&
+    (candidate.nextActor === undefined ||
+      candidate.nextActor === "thinker" ||
+      candidate.nextActor === "worker" ||
+      candidate.nextActor === "human" ||
+      candidate.nextActor === "none") &&
+    (candidate.lastMeaningfulActivityAt === undefined || typeof candidate.lastMeaningfulActivityAt === "string") &&
+    (candidate.inactivityTimeoutMinutes === undefined || typeof candidate.inactivityTimeoutMinutes === "number") &&
+    (candidate.currentHumanGate === undefined ||
+      candidate.currentHumanGate === "approval-required" ||
+      candidate.currentHumanGate === "manual-validation-required" ||
+      candidate.currentHumanGate === "decision-required" ||
+      candidate.currentHumanGate === "blocked" ||
+      candidate.currentHumanGate === "complete") &&
+    (candidate.lastProcessedEventId === undefined || typeof candidate.lastProcessedEventId === "string")
   );
 }
 
@@ -107,6 +137,7 @@ async function saveSessionState(stateFilePath: string | undefined, state: Sessio
 function createHumanSetupDecision(repository: string, reason: string, diagnostics: string[]): CycleDecision {
   return {
     repository,
+    eventId: `${repository}|setup:${reason}`,
     pickup: { action: "wait", reason: "not-in-implementation-queue" },
     outcome: "HUMAN",
     reason,
@@ -115,17 +146,31 @@ function createHumanSetupDecision(repository: string, reason: string, diagnostic
 }
 
 export async function runWatchWithProvider(options: ProviderWatchOptions, provider: SnapshotProvider): Promise<object> {
-  const sessionConfig: SessionConfig = {
-    pollIntervalMinutes: defaultSessionConfig.pollIntervalMinutes,
-    npfPauseThreshold: options.npfPauseThreshold ?? defaultSessionConfig.npfPauseThreshold
-  };
+  const inactivityTimeoutMinutes =
+    options.inactivityTimeoutMinutes ?? defaultSessionConfig.pollIntervalMinutes * defaultSessionConfig.npfPauseThreshold;
+  const pollIntervalMinutes = options.pollIntervalMinutes ?? defaultSessionConfig.pollIntervalMinutes;
+  const sessionConfig: SessionConfig =
+    options.npfPauseThreshold === undefined
+      ? createSessionConfig(pollIntervalMinutes, inactivityTimeoutMinutes)
+      : {
+          pollIntervalMinutes,
+          npfPauseThreshold: options.npfPauseThreshold
+        };
   const maxCycles = options.maxCycles ?? Number.POSITIVE_INFINITY;
   const intervalMs = options.intervalMs ?? 0;
   const audits: CycleAuditEvent[] = [];
   let state = await loadSessionState(options.stateFilePath);
 
+  if (options.repository && state.repository === undefined) {
+    state = createDurableSessionState({ repository: options.repository, inactivityTimeoutMinutes });
+  }
+
   if (options.resume) {
-    state = { consecutiveNpf: 0, status: "active" };
+    state = { ...state, consecutiveNpf: 0, status: "active" };
+    delete state.currentHumanGate;
+    if (state.repository !== undefined && !state.nextActor) {
+      state.nextActor = "none";
+    }
     await saveSessionState(options.stateFilePath, state);
   }
 
@@ -184,7 +229,9 @@ export async function runFixtureWatch(options: FixtureWatchOptions): Promise<obj
     labels: config.labels,
     providerName: "fixture",
     repository: "fixture",
-    maxCycles
+    maxCycles,
+    pollIntervalMinutes: config.polling.interval_minutes,
+    inactivityTimeoutMinutes: config.polling.inactivity_timeout_minutes
   };
 
   if (options.stateFilePath) {
@@ -222,7 +269,9 @@ export async function runGithubWatch(options: GithubWatchOptions): Promise<objec
     providerName: "github",
     repository: options.repository,
     stateFilePath,
-    intervalMs: options.intervalMs ?? defaultSessionConfig.pollIntervalMinutes * 60 * 1000
+    intervalMs: options.intervalMs ?? config.polling.interval_minutes * 60 * 1000,
+    pollIntervalMinutes: config.polling.interval_minutes,
+    inactivityTimeoutMinutes: config.polling.inactivity_timeout_minutes
   };
   const snapshotOptions = { repository: options.repository };
 

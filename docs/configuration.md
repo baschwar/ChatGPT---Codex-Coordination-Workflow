@@ -13,6 +13,11 @@ version: 1
 
 project:
   name: Example Project
+  repo: example-org/example-project
+
+roles:
+  thinker: chatgpt
+  worker: codex
 
 governance:
   files:
@@ -28,6 +33,14 @@ labels:
   blocked: blocked
   needs_human: needs-human-review
 
+polling:
+  interval_minutes: 10
+  inactivity_timeout_minutes: 60
+
+local_worker_transport:
+  git_protocol: ssh
+  https_fallback: disabled
+
 approval_gates:
   create_implementation_issue: explicit
   merge_pull_request: explicit
@@ -36,6 +49,10 @@ approval_gates:
   complete_physical_validation: explicit
   close_implementation_task: explicit
 ```
+
+## Project And Roles
+
+`project.repo` identifies the GitHub repository in `owner/name` form for portable headless runs. `roles.thinker` and `roles.worker` name the configured review/planning actor and implementation actor. They do not imply a built-in transport; actor invocation remains pluggable and may be `none`, mocked in tests, or implemented by a future adapter.
 
 ## Label Roles
 
@@ -47,3 +64,25 @@ approval_gates:
 | `review_ready` | `chat-review-ready` | Task implementation and handoff are ready for ChatGPT or another review agent. |
 | `blocked` | `blocked` | Task cannot proceed without external input, permission, or dependency resolution. |
 | `needs_human` | `needs-human-review` | A protected approval gate requires explicit human action. |
+
+## Polling
+
+`polling.interval_minutes` controls the default watch cadence. `polling.inactivity_timeout_minutes` controls when meaningful inactivity pauses active polling. The default example remains equivalent to six quiet cycles at a ten-minute interval.
+
+Polling alone is not meaningful activity. ACTION outcomes, new relevant task/PR state, review handoffs, and approved responses can reset the inactivity window; idle NPF cycles do not.
+
+## Local Worker Git Transport
+
+Local Codex/worker Git transport is SSH-only. A valid local `origin` remote looks like:
+
+```sh
+git@github.com:owner/repository.git
+```
+
+The local setup check rejects HTTPS remotes such as:
+
+```sh
+https://github.com/owner/repository.git
+```
+
+Do not silently rewrite to HTTPS and do not fall back to HTTPS when SSH authentication fails. Surface the setup blocker and repair SSH credentials instead. ChatGPT's GitHub connector may use its own authentication, but it must not change the local repository remote or local worker Git policy.

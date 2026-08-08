@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   applyCycleOutcome,
+  createDurableSessionState,
+  createSessionConfig,
   decideCycle,
   defaultSessionConfig,
   findMissingConfiguredLabels,
@@ -118,4 +120,131 @@ test("missing configured labels produce setup diagnostics", () => {
     "manual-validation",
     "chat-review-ready"
   ]);
+});
+
+test("durable session state records actionable workflow context", () => {
+  const state = createDurableSessionState({
+    repository: "example/repo",
+    inactivityTimeoutMinutes: 60,
+    timestamp: "2026-08-08T00:00:00.000Z"
+  });
+  const decision = decideCycle(
+    {
+      repository: "example/repo",
+      issues: [
+        {
+          number: 1,
+          title: "Ready",
+          labels: ["codex-ready"],
+          relatedPullRequests: [{ state: "open", branch: "codex/issue-1", url: "https://github.com/example/repo/pull/1" }]
+        }
+      ]
+    },
+    labels
+  );
+  const next = applyCycleOutcome(state, decision, defaultSessionConfig, "2026-08-08T00:10:00.000Z");
+
+  assert.equal(next.repository, "example/repo");
+  assert.equal(next.activeIssueNumber, 1);
+  assert.equal(next.activePullRequest?.url, "https://github.com/example/repo/pull/1");
+  assert.equal(next.nextActor, "worker");
+  assert.equal(next.lastMeaningfulActivityAt, "2026-08-08T00:10:00.000Z");
+  assert.equal(next.consecutiveNpf, 0);
+});
+
+test("durable session state pauses on human gates without losing workflow state", () => {
+  const state = createDurableSessionState({ repository: "example/repo", inactivityTimeoutMinutes: 60 });
+  const decision = decideCycle(
+    { repository: "example/repo", issues: [{ number: 4, title: "Manual", labels: ["manual-validation"] }] },
+    labels
+  );
+  const next = applyCycleOutcome(state, decision, defaultSessionConfig, "2026-08-08T00:10:00.000Z");
+
+  assert.equal(next.status, "paused");
+  assert.equal(next.activeIssueNumber, 4);
+  assert.equal(next.nextActor, "human");
+  assert.equal(next.currentHumanGate, "manual-validation-required");
+});
+
+test("meaningful activity timeout derives the NPF pause threshold", () => {
+  const config = createSessionConfig(15, 60);
+  let state: SessionState = createDurableSessionState({ repository: "example/repo", inactivityTimeoutMinutes: 60 });
+  const decision = decideCycle({ repository: "example/repo", issues: [] }, labels);
+
+  for (let cycle = 1; cycle <= 3; cycle += 1) {
+    state = applyCycleOutcome(state, decision, config);
+    assert.equal(state.status, "active");
+  }
+
+  state = applyCycleOutcome(state, decision, config);
+  assert.equal(state.consecutiveNpf, 4);
+  assert.equal(state.status, "paused");
+});
+
+test("unchanged review-ready event ages toward inactivity pause", () => {
+  const state = createDurableSessionState({
+    repository: "example/repo",
+    inactivityTimeoutMinutes: 60,
+    timestamp: "2026-08-08T00:00:00.000Z"
+  });
+  const decision = decideCycle(
+    {
+      repository: "example/repo",
+      issues: [
+        {
+          number: 1,
+          title: "Review",
+          labels: ["chat-review-ready"],
+          eventId: "issue:1:review-ready:v1",
+          relatedPullRequests: [{ state: "open", branch: "codex/issue-1", url: "https://github.com/example/repo/pull/1", eventId: "pr:1:head:a" }]
+        }
+      ]
+    },
+    labels
+  );
+  const observed = applyCycleOutcome(state, decision, defaultSessionConfig, "2026-08-08T00:10:00.000Z");
+  const repeated = applyCycleOutcome(observed, decision, defaultSessionConfig, "2026-08-08T00:20:00.000Z");
+
+  assert.equal(observed.consecutiveNpf, 0);
+  assert.equal(observed.lastMeaningfulActivityAt, "2026-08-08T00:10:00.000Z");
+  assert.equal(repeated.consecutiveNpf, 1);
+  assert.equal(repeated.lastMeaningfulActivityAt, "2026-08-08T00:10:00.000Z");
+  assert.equal(repeated.lastProcessedEventId, "pr:1:head:a");
+});
+
+test("new review-ready PR event resets inactivity once", () => {
+  const state: SessionState = {
+    consecutiveNpf: 4,
+    status: "active",
+    repository: "example/repo",
+    nextActor: "none",
+    lastMeaningfulActivityAt: "2026-08-08T00:00:00.000Z",
+    inactivityTimeoutMinutes: 60,
+    lastProcessedEventId: "pr:1:head:a"
+  };
+  const decision = decideCycle(
+    {
+      repository: "example/repo",
+      issues: [
+        {
+          number: 1,
+          title: "Review",
+          labels: ["chat-review-ready"],
+          relatedPullRequests: [{ state: "open", branch: "codex/issue-1", url: "https://github.com/example/repo/pull/1", eventId: "pr:1:head:b" }]
+        }
+      ]
+    },
+    labels
+  );
+  const observed = applyCycleOutcome(state, decision, defaultSessionConfig, "2026-08-08T00:10:00.000Z");
+  const repeated = applyCycleOutcome(observed, decision, defaultSessionConfig, "2026-08-08T00:20:00.000Z");
+
+  assert.equal(decision.outcome, "NPF");
+  assert.equal(observed.consecutiveNpf, 0);
+  assert.equal(observed.status, "active");
+  assert.equal(observed.nextActor, "none");
+  assert.equal(observed.lastMeaningfulActivityAt, "2026-08-08T00:10:00.000Z");
+  assert.equal(observed.lastProcessedEventId, "pr:1:head:b");
+  assert.equal(repeated.consecutiveNpf, 1);
+  assert.equal(repeated.lastMeaningfulActivityAt, "2026-08-08T00:10:00.000Z");
 });

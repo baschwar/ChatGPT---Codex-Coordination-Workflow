@@ -6,11 +6,13 @@ import { getProjectContext } from "./project-context.js";
 import { previewDirective } from "./preview-directive.js";
 import { runFixtureWatch, runGithubWatch } from "./watch-runner.js";
 import type { FixtureWatchOptions, GithubWatchOptions } from "./watch-runner.js";
+import { loadProjectConfig } from "../../../packages/config/src/load.js";
 
-export type CliCommand = "get-project-context" | "preview-directive" | "dry-run" | "run";
+export type CliCommand = "get-project-context" | "validate" | "preview-directive" | "dry-run" | "run";
 
 export const plannedCliCommands: CliCommand[] = [
   "get-project-context",
+  "validate",
   "preview-directive",
   "dry-run",
   "run"
@@ -32,6 +34,32 @@ async function main(args: string[]): Promise<void> {
   if (command === "get-project-context") {
     const repoRoot = rest[0] ?? process.cwd();
     console.log(JSON.stringify(await getProjectContext(repoRoot), null, 2));
+    return;
+  }
+
+  if (command === "validate") {
+    const repoRoot = rest[0] ?? process.cwd();
+    const result = await loadProjectConfig(repoRoot);
+    const context = await getProjectContext(repoRoot);
+
+    console.log(
+      JSON.stringify(
+        {
+          valid: context.localGitTransport.valid,
+          configPath: result.path,
+          project: result.config.project,
+          roles: result.config.roles,
+          polling: result.config.polling,
+          localWorkerTransport: result.config.local_worker_transport,
+          localGitTransport: context.localGitTransport
+        },
+        null,
+        2
+      )
+    );
+    if (!context.localGitTransport.valid) {
+      process.exitCode = 1;
+    }
     return;
   }
 

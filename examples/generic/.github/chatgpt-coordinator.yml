@@ -1,8 +1,8 @@
 version: 1
 
 project:
-  name: ChatGPT GitHub Coordinator
-  repo: baschwar/ChatGPT---Codex-Coordination-Workflow
+  name: Generic Repository
+  repo: example-org/example-repository
 
 roles:
   thinker: chatgpt
