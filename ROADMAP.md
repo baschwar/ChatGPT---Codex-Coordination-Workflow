@@ -14,7 +14,8 @@
 - Beta 1 decision/session engine
 - Fixture simulator
 - Read-only self-repo dry run
-- Bounded dry-run watch runner
+- Live read-only GitHub watch runner
+- Persisted and explicitly resumable session state
 
 ## Milestone 2: Approved Issue Creation
 
