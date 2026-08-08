@@ -1,6 +1,6 @@
 # Project Status
 
-Status: Beta 1 implementation in progress for issue #1.
+Status: Beta 1 implementation complete and review-ready for issue #1, pending explicit human merge and next-gate approval.
 
 Completed:
 
@@ -14,12 +14,13 @@ Completed:
 - Repository-neutral decision/session engine
 - Fixture simulator and inactivity tests
 - Read-only GitHub dry-run CLI path
-- Bounded fixture watch runner
+- Live read-only GitHub watch runner
+- Persisted watch session state with six-NPF auto-pause
+- Explicit `--resume` reset for paused watch sessions
 - macOS runner handoff notes
 
 Not started:
 
-- GitHub adapter implementation
 - MCP server implementation
 - Test-repository integration
 - CDW Studio integration
