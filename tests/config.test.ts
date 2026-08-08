@@ -22,6 +22,8 @@ test("parses and validates root project configuration", async () => {
   assert.equal(result.config.labels.review_ready, "chat-review-ready");
   assert.equal(result.config.polling.interval_minutes, 10);
   assert.equal(result.config.polling.inactivity_timeout_minutes, 60);
+  assert.equal(result.config.local_worker_transport.git_protocol, "ssh");
+  assert.equal(result.config.local_worker_transport.https_fallback, "disabled");
 });
 
 test("rejects invalid project configuration", async () => {
@@ -55,5 +57,6 @@ test("validates example repository configurations", async () => {
     assert.equal(config.roles.thinker, "chatgpt", example);
     assert.equal(config.roles.worker, "codex", example);
     assert.equal(config.polling.interval_minutes, 10, example);
+    assert.equal(config.local_worker_transport.git_protocol, "ssh", example);
   }
 });

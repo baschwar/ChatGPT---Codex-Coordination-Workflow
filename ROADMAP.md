@@ -24,6 +24,7 @@
 - Durable session state distinct from active polling process
 - Meaningful-activity inactivity model
 - Pluggable actor transport boundary
+- SSH-only local worker Git transport policy
 - Headless service/supervisor command boundary
 - Generic and CDW example configurations
 - Public-source readiness audit

@@ -23,5 +23,9 @@ export interface ProjectCoordinatorConfig {
     interval_minutes: number;
     inactivity_timeout_minutes: number;
   };
+  local_worker_transport: {
+    git_protocol: "ssh";
+    https_fallback: "disabled";
+  };
   approval_gates: Record<string, "explicit" | "disabled">;
 }

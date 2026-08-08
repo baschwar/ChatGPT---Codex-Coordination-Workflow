@@ -4,7 +4,7 @@
   "title": "ChatGPT GitHub Coordinator Project Configuration",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "project", "roles", "governance", "labels", "polling", "approval_gates"],
+  "required": ["version", "project", "roles", "governance", "labels", "polling", "local_worker_transport", "approval_gates"],
   "properties": {
     "version": {
       "const": 1
@@ -45,6 +45,19 @@
         "inactivity_timeout_minutes": {
           "type": "integer",
           "minimum": 1
+        }
+      }
+    },
+    "local_worker_transport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["git_protocol", "https_fallback"],
+      "properties": {
+        "git_protocol": {
+          "const": "ssh"
+        },
+        "https_fallback": {
+          "const": "disabled"
         }
       }
     },

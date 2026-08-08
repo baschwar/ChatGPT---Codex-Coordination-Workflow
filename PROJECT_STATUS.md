@@ -21,6 +21,7 @@ Completed:
 - Portable project repo, thinker/worker role, and polling configuration
 - Generic and CDW example configuration paths
 - Actor transport and headless service command boundaries
+- SSH-only local worker Git transport setup check
 
 Not started:
 

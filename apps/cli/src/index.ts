@@ -40,20 +40,26 @@ async function main(args: string[]): Promise<void> {
   if (command === "validate") {
     const repoRoot = rest[0] ?? process.cwd();
     const result = await loadProjectConfig(repoRoot);
+    const context = await getProjectContext(repoRoot);
 
     console.log(
       JSON.stringify(
         {
-          valid: true,
+          valid: context.localGitTransport.valid,
           configPath: result.path,
           project: result.config.project,
           roles: result.config.roles,
-          polling: result.config.polling
+          polling: result.config.polling,
+          localWorkerTransport: result.config.local_worker_transport,
+          localGitTransport: context.localGitTransport
         },
         null,
         2
       )
     );
+    if (!context.localGitTransport.valid) {
+      process.exitCode = 1;
+    }
     return;
   }
 

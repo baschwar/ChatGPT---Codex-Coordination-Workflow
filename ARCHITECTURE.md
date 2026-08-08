@@ -38,6 +38,10 @@ The adapter exposes intentional operations such as `createIssue`, `applyLabel`, 
 
 Actor invocation is pluggable. The core can classify a decision for a thinker, worker, or human, but it does not hard-code ChatGPT Web, Codex UI automation, paid API access, or another specific agent transport. If no supported transport is configured, the safe behavior is to surface the decision and preserve workflow state.
 
+### Local Worker Git Transport
+
+Codex/local worker Git operations require SSH remotes. HTTPS origins and HTTPS fallback are setup blockers for local worker checkouts because they hide SSH auth failures and can change branch ownership semantics. ChatGPT's GitHub connector may authenticate independently, but it must remain separate from local repository remotes.
+
 ### CLI App
 
 The CLI supports local validation and dry-run workflows:

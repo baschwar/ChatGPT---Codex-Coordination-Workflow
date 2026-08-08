@@ -37,6 +37,10 @@ polling:
   interval_minutes: 10
   inactivity_timeout_minutes: 60
 
+local_worker_transport:
+  git_protocol: ssh
+  https_fallback: disabled
+
 approval_gates:
   create_implementation_issue: explicit
   merge_pull_request: explicit
@@ -66,3 +70,19 @@ approval_gates:
 `polling.interval_minutes` controls the default watch cadence. `polling.inactivity_timeout_minutes` controls when meaningful inactivity pauses active polling. The default example remains equivalent to six quiet cycles at a ten-minute interval.
 
 Polling alone is not meaningful activity. ACTION outcomes, new relevant task/PR state, review handoffs, and approved responses can reset the inactivity window; idle NPF cycles do not.
+
+## Local Worker Git Transport
+
+Local Codex/worker Git transport is SSH-only. A valid local `origin` remote looks like:
+
+```sh
+git@github.com:owner/repository.git
+```
+
+The local setup check rejects HTTPS remotes such as:
+
+```sh
+https://github.com/owner/repository.git
+```
+
+Do not silently rewrite to HTTPS and do not fall back to HTTPS when SSH authentication fails. Surface the setup blocker and repair SSH credentials instead. ChatGPT's GitHub connector may use its own authentication, but it must not change the local repository remote or local worker Git policy.
