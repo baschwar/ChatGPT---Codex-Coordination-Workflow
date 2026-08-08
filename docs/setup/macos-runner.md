@@ -1,6 +1,6 @@
 # macOS Runner
 
-Beta 1 keeps scheduler setup separate from coordinator decision logic. The runner below is read-only/dry-run and processes one active task state per cycle.
+Scheduler setup stays separate from coordinator decision logic. The runner below is read-only/dry-run and processes one active task state per cycle.
 
 ## Ten-Minute Live Read-Only Command
 
@@ -65,7 +65,7 @@ Expected result:
 
 ## Launchd Wrapper Sketch
 
-Use a wrapper script for a future live Mac Mini run so environment and paths are explicit:
+Use a wrapper script for a live Mac Mini run so environment and paths are explicit:
 
 ```sh
 #!/bin/sh
@@ -73,4 +73,6 @@ cd "/Users/baschie/Documents/Codex/ChatGPT - GitHub Coordination Workflow" || ex
 npm run coordinator -- run --watch --repo baschwar/ChatGPT---Codex-Coordination-Workflow --state-file .chatgpt-coordinator/session-state.json --interval-ms 600000
 ```
 
-Beta 1 does not install or activate this wrapper automatically.
+This is a thin service boundary over the same CLI command used in a terminal. It does not belong in core decision logic, and stopping the wrapper must not delete `.chatgpt-coordinator/session-state.json`.
+
+Beta milestones do not install or activate this wrapper automatically.

@@ -2,6 +2,11 @@ export interface ProjectCoordinatorConfig {
   version: 1;
   project: {
     name: string;
+    repo?: string;
+  };
+  roles: {
+    thinker: string;
+    worker: string;
   };
   governance: {
     files: string[];
@@ -13,6 +18,10 @@ export interface ProjectCoordinatorConfig {
     review_ready: string;
     blocked: string;
     needs_human: string;
+  };
+  polling: {
+    interval_minutes: number;
+    inactivity_timeout_minutes: number;
   };
   approval_gates: Record<string, "explicit" | "disabled">;
 }

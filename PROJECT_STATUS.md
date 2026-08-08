@@ -1,6 +1,6 @@
 # Project Status
 
-Status: Beta 1 implementation complete and review-ready for issue #1, pending explicit human merge and next-gate approval.
+Status: Beta 2 implementation in progress for issue #3.
 
 Completed:
 
@@ -18,6 +18,9 @@ Completed:
 - Persisted watch session state with six-NPF auto-pause
 - Explicit `--resume` reset for paused watch sessions
 - macOS runner handoff notes
+- Portable project repo, thinker/worker role, and polling configuration
+- Generic and CDW example configuration paths
+- Actor transport and headless service command boundaries
 
 Not started:
 

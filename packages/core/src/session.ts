@@ -2,6 +2,8 @@ import { decideTaskPickup, type RelatedPullRequest, type TaskPickupDecision, typ
 
 export type CycleOutcome = "ACTION" | "HUMAN" | "NPF";
 export type SessionStatus = "active" | "paused";
+export type ActorRole = "thinker" | "worker" | "human" | "none";
+export type HumanStopReason = "approval-required" | "manual-validation-required" | "decision-required" | "blocked" | "complete";
 
 export interface WorkflowIssue {
   number: number;
@@ -25,6 +27,14 @@ export interface SessionConfig {
 export interface SessionState {
   consecutiveNpf: number;
   status: SessionStatus;
+  repository?: string;
+  activeIssueNumber?: number;
+  activePullRequest?: RelatedPullRequest;
+  nextActor?: ActorRole;
+  lastMeaningfulActivityAt?: string;
+  inactivityTimeoutMinutes?: number;
+  currentHumanGate?: HumanStopReason;
+  lastProcessedEventId?: string;
 }
 
 export interface CycleDecision {
@@ -55,6 +65,88 @@ export const defaultSessionConfig: SessionConfig = {
   pollIntervalMinutes: 10,
   npfPauseThreshold: 6
 };
+
+export function createSessionConfig(pollIntervalMinutes: number, inactivityTimeoutMinutes: number): SessionConfig {
+  return {
+    pollIntervalMinutes,
+    npfPauseThreshold: Math.max(1, Math.ceil(inactivityTimeoutMinutes / pollIntervalMinutes))
+  };
+}
+
+export function createDurableSessionState(options: {
+  repository: string;
+  inactivityTimeoutMinutes: number;
+  timestamp?: string;
+}): SessionState {
+  const state: SessionState = {
+    consecutiveNpf: 0,
+    status: "active",
+    repository: options.repository,
+    nextActor: "none",
+    inactivityTimeoutMinutes: options.inactivityTimeoutMinutes
+  };
+
+  if (options.timestamp) {
+    state.lastMeaningfulActivityAt = options.timestamp;
+  }
+
+  return state;
+}
+
+function isDurableSessionState(state: SessionState): boolean {
+  return state.repository !== undefined || state.nextActor !== undefined || state.inactivityTimeoutMinutes !== undefined;
+}
+
+function humanGateForDecision(decision: CycleDecision): HumanStopReason {
+  if (decision.reason === "manual-validation-awaiting-human") {
+    return "manual-validation-required";
+  }
+
+  if (decision.reason === "conflicting-workflow-labels") {
+    return "decision-required";
+  }
+
+  return "blocked";
+}
+
+function eventIdForDecision(decision: CycleDecision): string {
+  const issue = decision.issue ? `issue:${decision.issue.number}` : "issue:none";
+  const pullRequest = decision.pickup.pullRequest?.url ?? decision.pickup.pullRequest?.branch ?? "pr:none";
+  return `${decision.repository}|${issue}|${pullRequest}|${decision.outcome}|${decision.reason}`;
+}
+
+function withDecisionContext(state: SessionState, decision: CycleDecision, timestamp: string): SessionState {
+  if (!isDurableSessionState(state)) {
+    return state;
+  }
+
+  const next: SessionState = {
+    ...state,
+    repository: decision.repository,
+    lastProcessedEventId: eventIdForDecision(decision)
+  };
+
+  if (decision.issue) {
+    next.activeIssueNumber = decision.issue.number;
+  }
+
+  if (decision.pickup.pullRequest) {
+    next.activePullRequest = decision.pickup.pullRequest;
+  }
+
+  if (decision.outcome === "ACTION") {
+    next.nextActor = "worker";
+    next.lastMeaningfulActivityAt = timestamp;
+    delete next.currentHumanGate;
+  } else if (decision.outcome === "HUMAN") {
+    next.nextActor = "human";
+    next.currentHumanGate = humanGateForDecision(decision);
+  } else if (!next.nextActor) {
+    next.nextActor = "none";
+  }
+
+  return next;
+}
 
 function countWorkflowLabels(issue: WorkflowIssue, labels: TaskWorkflowLabels): number {
   const workflowLabels = new Set([
@@ -141,20 +233,26 @@ export function decideCycle(snapshot: WorkflowRepositorySnapshot, labels: TaskWo
   return decision;
 }
 
-export function applyCycleOutcome(state: SessionState, decision: CycleDecision, config: SessionConfig): SessionState {
+export function applyCycleOutcome(
+  state: SessionState,
+  decision: CycleDecision,
+  config: SessionConfig,
+  timestamp = new Date().toISOString()
+): SessionState {
   if (decision.outcome === "ACTION") {
-    return { consecutiveNpf: 0, status: "active" };
+    return withDecisionContext({ ...state, consecutiveNpf: 0, status: "active" }, decision, timestamp);
   }
 
   if (decision.outcome === "HUMAN") {
-    return { consecutiveNpf: state.consecutiveNpf, status: "paused" };
+    return withDecisionContext({ ...state, consecutiveNpf: state.consecutiveNpf, status: "paused" }, decision, timestamp);
   }
 
   const consecutiveNpf = state.consecutiveNpf + 1;
-  return {
+  return withDecisionContext({
+    ...state,
     consecutiveNpf,
     status: consecutiveNpf >= config.npfPauseThreshold ? "paused" : "active"
-  };
+  }, decision, timestamp);
 }
 
 export function createCycleAuditEvent(

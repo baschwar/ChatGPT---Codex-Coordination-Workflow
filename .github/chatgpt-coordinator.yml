@@ -2,6 +2,11 @@ version: 1
 
 project:
   name: ChatGPT GitHub Coordinator
+  repo: baschwar/ChatGPT---Codex-Coordination-Workflow
+
+roles:
+  thinker: chatgpt
+  worker: codex
 
 governance:
   files:
@@ -16,6 +21,10 @@ labels:
   review_ready: chat-review-ready
   blocked: blocked
   needs_human: needs-human-review
+
+polling:
+  interval_minutes: 10
+  inactivity_timeout_minutes: 60
 
 approval_gates:
   create_implementation_issue: explicit

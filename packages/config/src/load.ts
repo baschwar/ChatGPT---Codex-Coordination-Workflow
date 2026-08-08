@@ -10,11 +10,7 @@ export interface ConfigLoadResult {
   path: string;
 }
 
-export async function loadProjectConfig(repoRoot: string): Promise<ConfigLoadResult> {
-  const configPath = path.join(repoRoot, ".github", "chatgpt-coordinator.yml");
-  const raw = await readFile(configPath, "utf8");
-  const parsed = YAML.parse(raw) as unknown;
-  const schema = JSON.parse(await readFile(path.join(repoRoot, "packages", "schemas", "project-config.schema.json"), "utf8")) as object;
+export function validateProjectConfig(parsed: unknown, schema: object): ProjectCoordinatorConfig {
   const ajv = new Ajv2020({ allErrors: true });
   const validate = ajv.compile(schema);
 
@@ -23,8 +19,17 @@ export async function loadProjectConfig(repoRoot: string): Promise<ConfigLoadRes
     throw new Error(`Invalid coordinator config: ${message}`);
   }
 
+  return parsed as ProjectCoordinatorConfig;
+}
+
+export async function loadProjectConfig(repoRoot: string): Promise<ConfigLoadResult> {
+  const configPath = path.join(repoRoot, ".github", "chatgpt-coordinator.yml");
+  const raw = await readFile(configPath, "utf8");
+  const parsed = YAML.parse(raw) as unknown;
+  const schema = JSON.parse(await readFile(path.join(repoRoot, "packages", "schemas", "project-config.schema.json"), "utf8")) as object;
+
   return {
-    config: parsed as ProjectCoordinatorConfig,
+    config: validateProjectConfig(parsed, schema),
     path: configPath
   };
 }

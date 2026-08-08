@@ -17,7 +17,19 @@
 - Live read-only GitHub watch runner
 - Persisted and explicitly resumable session state
 
-## Milestone 2: Approved Issue Creation
+## Milestone 2: Portable Headless Coordinator Core
+
+- Portable repository configuration contract
+- Thinker and worker role configuration
+- Durable session state distinct from active polling process
+- Meaningful-activity inactivity model
+- Pluggable actor transport boundary
+- Headless service/supervisor command boundary
+- Generic and CDW example configurations
+- Public-source readiness audit
+- Integration guide
+
+## Milestone 3: Approved Issue Creation
 
 - Explicit approval input
 - Directive validation
@@ -28,7 +40,7 @@
 - Audit record
 - Explicit workflow-label setup command
 
-## Milestone 3: Progress And Review Discovery
+## Milestone 4: Progress And Review Discovery
 
 - Codex-ready task discovery
 - ChatGPT-review-ready task discovery
@@ -38,7 +50,7 @@
 - Structured review summaries
 - GitHub review comments
 
-## Milestone 4: MCP Server
+## Milestone 5: MCP Server
 
 - Tool schemas
 - Authentication setup
@@ -47,7 +59,7 @@
 - Local testing instructions
 - Example ChatGPT integration
 
-## Milestone 5: CDW Reference Integration
+## Milestone 6: CDW Reference Integration
 
 - Add CDW Studio reference configuration
 - Validate against a dedicated test repository first

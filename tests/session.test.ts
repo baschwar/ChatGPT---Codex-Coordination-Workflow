@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   applyCycleOutcome,
+  createDurableSessionState,
+  createSessionConfig,
   decideCycle,
   defaultSessionConfig,
   findMissingConfiguredLabels,
@@ -118,4 +120,63 @@ test("missing configured labels produce setup diagnostics", () => {
     "manual-validation",
     "chat-review-ready"
   ]);
+});
+
+test("durable session state records actionable workflow context", () => {
+  const state = createDurableSessionState({
+    repository: "example/repo",
+    inactivityTimeoutMinutes: 60,
+    timestamp: "2026-08-08T00:00:00.000Z"
+  });
+  const decision = decideCycle(
+    {
+      repository: "example/repo",
+      issues: [
+        {
+          number: 1,
+          title: "Ready",
+          labels: ["codex-ready"],
+          relatedPullRequests: [{ state: "open", branch: "codex/issue-1", url: "https://github.com/example/repo/pull/1" }]
+        }
+      ]
+    },
+    labels
+  );
+  const next = applyCycleOutcome(state, decision, defaultSessionConfig, "2026-08-08T00:10:00.000Z");
+
+  assert.equal(next.repository, "example/repo");
+  assert.equal(next.activeIssueNumber, 1);
+  assert.equal(next.activePullRequest?.url, "https://github.com/example/repo/pull/1");
+  assert.equal(next.nextActor, "worker");
+  assert.equal(next.lastMeaningfulActivityAt, "2026-08-08T00:10:00.000Z");
+  assert.equal(next.consecutiveNpf, 0);
+});
+
+test("durable session state pauses on human gates without losing workflow state", () => {
+  const state = createDurableSessionState({ repository: "example/repo", inactivityTimeoutMinutes: 60 });
+  const decision = decideCycle(
+    { repository: "example/repo", issues: [{ number: 4, title: "Manual", labels: ["manual-validation"] }] },
+    labels
+  );
+  const next = applyCycleOutcome(state, decision, defaultSessionConfig, "2026-08-08T00:10:00.000Z");
+
+  assert.equal(next.status, "paused");
+  assert.equal(next.activeIssueNumber, 4);
+  assert.equal(next.nextActor, "human");
+  assert.equal(next.currentHumanGate, "manual-validation-required");
+});
+
+test("meaningful activity timeout derives the NPF pause threshold", () => {
+  const config = createSessionConfig(15, 60);
+  let state: SessionState = createDurableSessionState({ repository: "example/repo", inactivityTimeoutMinutes: 60 });
+  const decision = decideCycle({ repository: "example/repo", issues: [] }, labels);
+
+  for (let cycle = 1; cycle <= 3; cycle += 1) {
+    state = applyCycleOutcome(state, decision, config);
+    assert.equal(state.status, "active");
+  }
+
+  state = applyCycleOutcome(state, decision, config);
+  assert.equal(state.consecutiveNpf, 4);
+  assert.equal(state.status, "paused");
 });

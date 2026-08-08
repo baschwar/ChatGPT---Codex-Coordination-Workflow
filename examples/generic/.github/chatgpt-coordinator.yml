@@ -1,8 +1,8 @@
 version: 1
 
 project:
-  name: Computational Design Workbench
-  repo: example-org/cdw-studio
+  name: Generic Repository
+  repo: example-org/example-repository
 
 roles:
   thinker: chatgpt
@@ -12,7 +12,7 @@ governance:
   files:
     - AGENTS.md
     - PROJECT_STATUS.md
-    - ROADMAP/CDW_ROADMAP.md
+    - ROADMAP.md
 
 labels:
   implementation_ready: codex-ready

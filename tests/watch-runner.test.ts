@@ -180,3 +180,28 @@ test("live watch provider resumes paused persisted state only with explicit inte
   assert.equal(result.sessionStatus, "active");
   assert.deepEqual(await readPersistedState(stateFile), { consecutiveNpf: 0, status: "active" });
 });
+
+test("repository watch provider persists durable session context", async () => {
+  const stateFile = await tempStateFile();
+  const result = (await runWatchWithProvider(
+    {
+      labels,
+      providerName: "mock-live",
+      repository: "example/repo",
+      stateFilePath: stateFile,
+      maxCycles: 1,
+      intervalMs: 0,
+      inactivityTimeoutMinutes: 60
+    },
+    async () => snapshot([{ number: 1, title: "Ready", labels: ["codex-ready"] }])
+  )) as WatchResult;
+  const persisted = JSON.parse(await readFile(stateFile, "utf8")) as Record<string, unknown>;
+
+  assert.equal(result.cyclesRun, 1);
+  assert.equal(result.sessionStatus, "active");
+  assert.equal(persisted.repository, "example/repo");
+  assert.equal(persisted.activeIssueNumber, 1);
+  assert.equal(persisted.nextActor, "worker");
+  assert.equal(persisted.inactivityTimeoutMinutes, 60);
+  assert.equal(persisted.consecutiveNpf, 0);
+});

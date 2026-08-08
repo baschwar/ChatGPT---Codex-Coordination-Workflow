@@ -4,7 +4,7 @@
   "title": "ChatGPT GitHub Coordinator Project Configuration",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "project", "governance", "labels", "approval_gates"],
+  "required": ["version", "project", "roles", "governance", "labels", "polling", "approval_gates"],
   "properties": {
     "version": {
       "const": 1
@@ -17,6 +17,34 @@
         "name": {
           "type": "string",
           "minLength": 1
+        },
+        "repo": {
+          "type": "string",
+          "pattern": "^[^/\\s]+/[^/\\s]+$"
+        }
+      }
+    },
+    "roles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["thinker", "worker"],
+      "properties": {
+        "thinker": { "type": "string", "minLength": 1 },
+        "worker": { "type": "string", "minLength": 1 }
+      }
+    },
+    "polling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["interval_minutes", "inactivity_timeout_minutes"],
+      "properties": {
+        "interval_minutes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "inactivity_timeout_minutes": {
+          "type": "integer",
+          "minimum": 1
         }
       }
     },

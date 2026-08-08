@@ -6,11 +6,13 @@ import { getProjectContext } from "./project-context.js";
 import { previewDirective } from "./preview-directive.js";
 import { runFixtureWatch, runGithubWatch } from "./watch-runner.js";
 import type { FixtureWatchOptions, GithubWatchOptions } from "./watch-runner.js";
+import { loadProjectConfig } from "../../../packages/config/src/load.js";
 
-export type CliCommand = "get-project-context" | "preview-directive" | "dry-run" | "run";
+export type CliCommand = "get-project-context" | "validate" | "preview-directive" | "dry-run" | "run";
 
 export const plannedCliCommands: CliCommand[] = [
   "get-project-context",
+  "validate",
   "preview-directive",
   "dry-run",
   "run"
@@ -32,6 +34,26 @@ async function main(args: string[]): Promise<void> {
   if (command === "get-project-context") {
     const repoRoot = rest[0] ?? process.cwd();
     console.log(JSON.stringify(await getProjectContext(repoRoot), null, 2));
+    return;
+  }
+
+  if (command === "validate") {
+    const repoRoot = rest[0] ?? process.cwd();
+    const result = await loadProjectConfig(repoRoot);
+
+    console.log(
+      JSON.stringify(
+        {
+          valid: true,
+          configPath: result.path,
+          project: result.config.project,
+          roles: result.config.roles,
+          polling: result.config.polling
+        },
+        null,
+        2
+      )
+    );
     return;
   }
 
