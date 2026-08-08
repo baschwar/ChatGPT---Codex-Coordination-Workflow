@@ -165,6 +165,9 @@ function statusCheckToCheck(check: unknown): DiscoveryCheck | undefined {
   if (typeof record.conclusion === "string") {
     normalized.conclusion = record.conclusion;
   }
+  if (typeof record.state === "string") {
+    normalized.state = record.state;
+  }
   if (typeof record.detailsUrl === "string") {
     normalized.url = record.detailsUrl;
   } else if (typeof record.url === "string") {

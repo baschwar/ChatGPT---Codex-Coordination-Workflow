@@ -43,6 +43,7 @@ export interface DiscoveryCheck {
   name: string;
   status?: string;
   conclusion?: string;
+  state?: string;
   url?: string;
 }
 
@@ -133,6 +134,12 @@ const nonActionableMarker = /<!--\s*coordinator:non-actionable-artifact\s*-->|\b
 const correctionPattern = /\b(CHANGES_REQUESTED|changes requested|requested changes|requested corrections|corrections|resume PR|continue beta|continue implementation|coding correction)\b/i;
 const reviewReadyPattern = /\bCHAT REVIEW READY\b/i;
 
+type WorkflowEventKind = "correction" | "review-ready";
+
+interface WorkflowEvent extends DiscoveryEventSummary {
+  kind: WorkflowEventKind;
+}
+
 function issueUrl(repository: string, issueNumber: number): string {
   return `https://github.com/${repository}/issues/${issueNumber}`;
 }
@@ -165,15 +172,36 @@ function checkStateFor(checks: DiscoveryCheck[] | undefined): GitHubCheckState {
     return "no-check-runs";
   }
 
+  if (checks.some((check) => {
+    const state = check.state?.toUpperCase();
+    return state === "FAILURE" || state === "ERROR";
+  })) {
+    return "failing";
+  }
+
   if (checks.some((check) => check.conclusion && !["SUCCESS", "SKIPPED", "NEUTRAL"].includes(check.conclusion.toUpperCase()))) {
     return "failing";
+  }
+
+  if (checks.some((check) => {
+    const state = check.state?.toUpperCase();
+    return state === "PENDING" || state === "EXPECTED";
+  })) {
+    return "pending";
   }
 
   if (checks.some((check) => check.status && check.status.toUpperCase() !== "COMPLETED")) {
     return "pending";
   }
 
-  if (checks.every((check) => !check.conclusion || ["SUCCESS", "SKIPPED", "NEUTRAL"].includes(check.conclusion.toUpperCase()))) {
+  if (checks.every((check) => {
+    const state = check.state?.toUpperCase();
+    if (state) {
+      return state === "SUCCESS";
+    }
+
+    return !check.conclusion || ["SUCCESS", "SKIPPED", "NEUTRAL"].includes(check.conclusion.toUpperCase());
+  })) {
     return "passing";
   }
 
@@ -289,10 +317,34 @@ function discoveryEvent(input: {
   return event;
 }
 
-function latestCorrectionEvent(pullRequest: DiscoveryPullRequest): DiscoveryEventSummary | undefined {
+function workflowEvent(input: {
+  kind: WorkflowEventKind;
+  id: string;
+  source: DiscoveryEventSummary["source"];
+  summary: string;
+  createdAt?: string | undefined;
+  updatedAt?: string | undefined;
+  url?: string | undefined;
+}): WorkflowEvent {
+  return {
+    ...discoveryEvent(input),
+    kind: input.kind
+  };
+}
+
+function isCorrectionComment(comment: DiscoveryComment): boolean {
+  if (reviewReadyPattern.test(comment.body)) {
+    return false;
+  }
+
+  return correctionPattern.test(comment.body);
+}
+
+function correctionEvents(pullRequest: DiscoveryPullRequest): WorkflowEvent[] {
   const reviewEvents = (pullRequest.reviews ?? [])
     .filter((review) => review.state.toUpperCase() === "CHANGES_REQUESTED" || correctionPattern.test(review.body ?? ""))
-    .map((review) => discoveryEvent({
+    .map((review) => workflowEvent({
+      kind: "correction",
       id: review.id ?? `pr:${pullRequest.number}:review:${review.submittedAt ?? "unknown"}`,
       source: "review",
       summary: review.state.toUpperCase() === "CHANGES_REQUESTED" ? "GitHub review requested changes" : "Review body requested corrections",
@@ -301,8 +353,9 @@ function latestCorrectionEvent(pullRequest: DiscoveryPullRequest): DiscoveryEven
       url: review.url
     }));
   const commentEvents = (pullRequest.comments ?? [])
-    .filter((comment) => correctionPattern.test(comment.body))
-    .map((comment) => discoveryEvent({
+    .filter(isCorrectionComment)
+    .map((comment) => workflowEvent({
+      kind: "correction",
       id: comment.id ?? `pr:${pullRequest.number}:comment:${comment.updatedAt ?? comment.createdAt ?? "unknown"}`,
       source: "comment",
       summary: "PR comment requested Codex continuation",
@@ -311,23 +364,25 @@ function latestCorrectionEvent(pullRequest: DiscoveryPullRequest): DiscoveryEven
       url: comment.url
     }));
 
-  return latestByTime([...reviewEvents, ...commentEvents]);
+  return [...reviewEvents, ...commentEvents];
 }
 
-function latestReviewReadyEvent(issue: DiscoveryIssue, pullRequest: DiscoveryPullRequest | undefined): DiscoveryEventSummary | undefined {
-  const issueEvents = (issue.comments ?? [])
+function reviewReadyEvents(issue: DiscoveryIssue | undefined, pullRequest: DiscoveryPullRequest | undefined): WorkflowEvent[] {
+  const issueEvents = issue ? (issue.comments ?? [])
     .filter((comment) => reviewReadyPattern.test(comment.body))
-    .map((comment) => discoveryEvent({
+    .map((comment) => workflowEvent({
+      kind: "review-ready",
       id: comment.id ?? `issue:${issue.number}:comment:${comment.updatedAt ?? comment.createdAt ?? "unknown"}`,
       source: "comment",
       summary: "Issue handoff comment marked CHAT REVIEW READY",
       createdAt: comment.createdAt,
       updatedAt: comment.updatedAt,
       url: comment.url
-    }));
+    })) : [];
   const prEvents = pullRequest ? (pullRequest.comments ?? [])
     .filter((comment) => reviewReadyPattern.test(comment.body))
-    .map((comment) => discoveryEvent({
+    .map((comment) => workflowEvent({
+      kind: "review-ready",
       id: comment.id ?? `pr:${pullRequest.number}:comment:${comment.updatedAt ?? comment.createdAt ?? "unknown"}`,
       source: "comment",
       summary: "PR handoff comment marked CHAT REVIEW READY",
@@ -336,7 +391,11 @@ function latestReviewReadyEvent(issue: DiscoveryIssue, pullRequest: DiscoveryPul
       url: comment.url
     })) : [];
 
-  return latestByTime([...issueEvents, ...prEvents]);
+  return [...issueEvents, ...prEvents];
+}
+
+function latestWorkflowEvent(issue: DiscoveryIssue | undefined, pullRequest: DiscoveryPullRequest): WorkflowEvent | undefined {
+  return latestByTime([...correctionEvents(pullRequest), ...reviewReadyEvents(issue, pullRequest)]);
 }
 
 function resultEventId(kind: DiscoveryResultKind, repository: string, issue: DiscoveryIssue | undefined, pullRequest: DiscoveryPullRequest | undefined, event: DiscoveryEventSummary | undefined): string {
@@ -426,18 +485,34 @@ export function discoverRepositoryWork(snapshot: RepositoryDiscoverySnapshot): R
     }
 
     if (openPullRequest) {
-      const correctionEvent = latestCorrectionEvent(openPullRequest);
-      if (correctionEvent) {
+      const workflowEvent = latestWorkflowEvent(issue, openPullRequest);
+      if (workflowEvent?.kind === "correction") {
         candidates.push({
           priority: 10,
           result: withCommon({
             kind: "resume-existing-pr",
             reason: "latest-pr-event-requests-codex-corrections",
             nextActor: "worker",
-            eventId: resultEventId("resume-existing-pr", snapshot.repository, issue, openPullRequest, correctionEvent),
+            eventId: resultEventId("resume-existing-pr", snapshot.repository, issue, openPullRequest, workflowEvent),
             issue: issueSummary(snapshot.repository, issue),
             pullRequest: pullRequestSummary(openPullRequest),
-            latestEvent: correctionEvent
+            latestEvent: workflowEvent
+          }, snapshot)
+        });
+        continue;
+      }
+
+      if (workflowEvent?.kind === "review-ready") {
+        candidates.push({
+          priority: 40,
+          result: withCommon({
+            kind: "chat-review-ready",
+            reason: "latest-pr-event-is-chat-review-ready",
+            nextActor: "thinker",
+            eventId: resultEventId("chat-review-ready", snapshot.repository, issue, openPullRequest, workflowEvent),
+            issue: issueSummary(snapshot.repository, issue),
+            pullRequest: pullRequestSummary(openPullRequest),
+            latestEvent: workflowEvent
           }, snapshot)
         });
         continue;
@@ -472,8 +547,8 @@ export function discoverRepositoryWork(snapshot: RepositoryDiscoverySnapshot): R
       continue;
     }
 
-    if (issueLabels.has(snapshot.labels.review_ready) || latestReviewReadyEvent(issue, openPullRequest)) {
-      const reviewReadyEvent = latestReviewReadyEvent(issue, openPullRequest);
+    const reviewReadyEvent = latestByTime(reviewReadyEvents(issue, openPullRequest));
+    if (issueLabels.has(snapshot.labels.review_ready) || reviewReadyEvent) {
       candidates.push({
         priority: 40,
         result: withCommon({
@@ -489,18 +564,36 @@ export function discoverRepositoryWork(snapshot: RepositoryDiscoverySnapshot): R
     }
   }
 
-  const orphanCorrectionPr = openPullRequests.find((pullRequest) => latestCorrectionEvent(pullRequest));
-  if (orphanCorrectionPr) {
-    const correctionEvent = latestCorrectionEvent(orphanCorrectionPr);
+  const orphanWorkflowCandidate = openPullRequests
+    .map((pullRequest) => ({ pullRequest, event: latestWorkflowEvent(undefined, pullRequest) }))
+    .filter((candidate): candidate is { pullRequest: DiscoveryPullRequest; event: WorkflowEvent } => Boolean(candidate.event))
+    .sort((a, b) => {
+      const aTime = Date.parse(a.event.updatedAt ?? a.event.createdAt ?? "");
+      const bTime = Date.parse(b.event.updatedAt ?? b.event.createdAt ?? "");
+      return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+    })[0];
+  if (orphanWorkflowCandidate?.event.kind === "correction") {
     candidates.push({
       priority: 50,
       result: withCommon({
         kind: "resume-existing-pr",
         reason: "open-pr-has-unassociated-correction-event",
         nextActor: "worker",
-        eventId: resultEventId("resume-existing-pr", snapshot.repository, undefined, orphanCorrectionPr, correctionEvent),
-        pullRequest: pullRequestSummary(orphanCorrectionPr),
-        ...(correctionEvent ? { latestEvent: correctionEvent } : {})
+        eventId: resultEventId("resume-existing-pr", snapshot.repository, undefined, orphanWorkflowCandidate.pullRequest, orphanWorkflowCandidate.event),
+        pullRequest: pullRequestSummary(orphanWorkflowCandidate.pullRequest),
+        latestEvent: orphanWorkflowCandidate.event
+      }, snapshot)
+    });
+  } else if (orphanWorkflowCandidate?.event.kind === "review-ready") {
+    candidates.push({
+      priority: 55,
+      result: withCommon({
+        kind: "chat-review-ready",
+        reason: "open-pr-has-unassociated-review-ready-event",
+        nextActor: "thinker",
+        eventId: resultEventId("chat-review-ready", snapshot.repository, undefined, orphanWorkflowCandidate.pullRequest, orphanWorkflowCandidate.event),
+        pullRequest: pullRequestSummary(orphanWorkflowCandidate.pullRequest),
+        latestEvent: orphanWorkflowCandidate.event
       }, snapshot)
     });
   }

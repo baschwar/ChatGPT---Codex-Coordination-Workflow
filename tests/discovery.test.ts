@@ -80,6 +80,119 @@ test("latest requested-changes review selects Codex as next actor", () => {
   assert.equal(result.reason, "latest-pr-event-requests-codex-corrections");
 });
 
+test("newer CHAT REVIEW READY handoff beats an older correction event", () => {
+  const result = discoverRepositoryWork(snapshot({
+    issues: [{ number: 6, title: "Beta 3", labels: ["codex-in-progress"] }],
+    pullRequests: [
+      {
+        number: 8,
+        title: "Beta 3 PR",
+        state: "OPEN",
+        headRefName: "codex/issue-6",
+        comments: [
+          {
+            id: "older-correction",
+            body: "Please address requested corrections.",
+            updatedAt: "2026-08-08T18:00:00Z"
+          },
+          {
+            id: "newer-handoff",
+            body: "Corrections addressed. CHAT REVIEW READY.",
+            updatedAt: "2026-08-08T18:30:00Z"
+          }
+        ]
+      }
+    ]
+  }));
+
+  assert.equal(result.kind, "chat-review-ready");
+  assert.equal(result.nextActor, "thinker");
+  assert.equal(result.latestEvent?.id, "newer-handoff");
+});
+
+test("newer CHANGES_REQUESTED review beats an older CHAT REVIEW READY handoff", () => {
+  const result = discoverRepositoryWork(snapshot({
+    issues: [{ number: 6, title: "Beta 3", labels: ["chat-review-ready"] }],
+    pullRequests: [
+      {
+        number: 8,
+        title: "Beta 3 PR",
+        state: "OPEN",
+        headRefName: "codex/issue-6",
+        comments: [
+          {
+            id: "older-handoff",
+            body: "CHAT REVIEW READY.",
+            updatedAt: "2026-08-08T18:00:00Z"
+          }
+        ],
+        reviews: [{ id: "newer-review", state: "CHANGES_REQUESTED", submittedAt: "2026-08-08T18:30:00Z" }]
+      }
+    ]
+  }));
+
+  assert.equal(result.kind, "resume-existing-pr");
+  assert.equal(result.nextActor, "worker");
+  assert.equal(result.latestEvent?.id, "newer-review");
+});
+
+test("CHAT REVIEW READY completion comment mentioning corrections is not a correction", () => {
+  const result = discoverRepositoryWork(snapshot({
+    issues: [{ number: 6, title: "Beta 3", labels: ["codex-in-progress"] }],
+    pullRequests: [
+      {
+        number: 8,
+        title: "Beta 3 PR",
+        state: "OPEN",
+        headRefName: "codex/issue-6",
+        comments: [
+          {
+            id: "handoff",
+            body: "All requested corrections are addressed. CHAT REVIEW READY.",
+            updatedAt: "2026-08-08T18:30:00Z"
+          }
+        ]
+      }
+    ]
+  }));
+
+  assert.equal(result.kind, "chat-review-ready");
+  assert.equal(result.nextActor, "thinker");
+  assert.equal(result.latestEvent?.id, "handoff");
+});
+
+test("orphan PR discovery routes by latest meaningful workflow event", () => {
+  const reviewReady = discoverRepositoryWork(snapshot({
+    pullRequests: [
+      {
+        number: 8,
+        title: "Beta 3 PR",
+        state: "OPEN",
+        comments: [
+          { id: "older-correction", body: "requested corrections", updatedAt: "2026-08-08T18:00:00Z" },
+          { id: "newer-handoff", body: "CHAT REVIEW READY", updatedAt: "2026-08-08T18:30:00Z" }
+        ]
+      }
+    ]
+  }));
+  const correction = discoverRepositoryWork(snapshot({
+    pullRequests: [
+      {
+        number: 8,
+        title: "Beta 3 PR",
+        state: "OPEN",
+        comments: [{ id: "older-handoff", body: "CHAT REVIEW READY", updatedAt: "2026-08-08T18:00:00Z" }],
+        reviews: [{ id: "newer-review", state: "CHANGES_REQUESTED", submittedAt: "2026-08-08T18:30:00Z" }]
+      }
+    ]
+  }));
+
+  assert.equal(reviewReady.kind, "chat-review-ready");
+  assert.equal(reviewReady.nextActor, "thinker");
+  assert.equal(correction.kind, "resume-existing-pr");
+  assert.equal(correction.nextActor, "worker");
+});
+
 test("chat-review-ready label selects ChatGPT with PR and check context", () => {
   const result = discoverRepositoryWork(snapshot({
     issues: [{ number: 6, title: "Beta 3", labels: ["chat-review-ready"] }],
@@ -208,6 +321,38 @@ test("GitHub check failures are not treated as local validation success", () => 
   }));
 
   assert.equal(result.pullRequest?.checkState, "failing");
+});
+
+test("GitHub status context state is classified accurately", () => {
+  const passing = discoverRepositoryWork(snapshot({
+    issues: [{ number: 6, title: "Beta 3", labels: ["chat-review-ready"] }],
+    pullRequests: [
+      { number: 8, title: "Beta 3 PR", state: "OPEN", headRefName: "codex/issue-6", checks: [{ name: "legacy/status", state: "SUCCESS" }] }
+    ]
+  }));
+  const pending = discoverRepositoryWork(snapshot({
+    issues: [{ number: 6, title: "Beta 3", labels: ["chat-review-ready"] }],
+    pullRequests: [
+      { number: 8, title: "Beta 3 PR", state: "OPEN", headRefName: "codex/issue-6", checks: [{ name: "legacy/status", state: "PENDING" }] }
+    ]
+  }));
+  const expected = discoverRepositoryWork(snapshot({
+    issues: [{ number: 6, title: "Beta 3", labels: ["chat-review-ready"] }],
+    pullRequests: [
+      { number: 8, title: "Beta 3 PR", state: "OPEN", headRefName: "codex/issue-6", checks: [{ name: "legacy/status", state: "EXPECTED" }] }
+    ]
+  }));
+  const failing = discoverRepositoryWork(snapshot({
+    issues: [{ number: 6, title: "Beta 3", labels: ["chat-review-ready"] }],
+    pullRequests: [
+      { number: 8, title: "Beta 3 PR", state: "OPEN", headRefName: "codex/issue-6", checks: [{ name: "legacy/status", state: "ERROR" }] }
+    ]
+  }));
+
+  assert.equal(passing.pullRequest?.checkState, "passing");
+  assert.equal(pending.pullRequest?.checkState, "pending");
+  assert.equal(expected.pullRequest?.checkState, "pending");
+  assert.equal(failing.pullRequest?.checkState, "failing");
 });
 
 test("governance files are carried into discovery results", () => {
