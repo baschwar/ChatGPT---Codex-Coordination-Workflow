@@ -226,6 +226,7 @@ test("repository watch provider persists durable session context", async () => {
       labels,
       providerName: "mock-live",
       repository: "example/repo",
+      configuredWriteRepository: "example/repo",
       stateFilePath: stateFile,
       maxCycles: 1,
       intervalMs: 0,
@@ -277,6 +278,7 @@ test("repository watch provider persists meaningful event identity across runs",
       labels,
       providerName: "mock-live",
       repository: "example/repo",
+      configuredWriteRepository: "example/repo",
       stateFilePath: stateFile,
       maxCycles: 1,
       intervalMs: 0,
@@ -289,6 +291,7 @@ test("repository watch provider persists meaningful event identity across runs",
       labels,
       providerName: "mock-live",
       repository: "example/repo",
+      configuredWriteRepository: "example/repo",
       stateFilePath: stateFile,
       maxCycles: 1,
       intervalMs: 0,
@@ -320,6 +323,7 @@ test("write-enabled watch applies configured claim labels idempotently", async (
       labels,
       providerName: "mock-live",
       repository: "example/repo",
+      configuredWriteRepository: "example/repo",
       stateFilePath: stateFile,
       writeStateFilePath: writeStateFile,
       maxCycles: 1,
@@ -380,6 +384,32 @@ test("write-enabled watch fails closed on configured repository mismatch", async
   assert.deepEqual(calls, []);
 });
 
+test("write-enabled watch fails closed when configured repository is missing", async () => {
+  const stateFile = await tempStateFile();
+  const writeStateFile = await tempStateFile();
+  const calls: string[] = [];
+  const result = (await runWatchWithProvider(
+    {
+      labels,
+      providerName: "mock-live",
+      repository: "example/repo",
+      stateFilePath: stateFile,
+      writeStateFilePath: writeStateFile,
+      maxCycles: 1,
+      intervalMs: 0,
+      executeWrites: true,
+      mutationPolicy: { enabled: true, allowed_actions: ["ADD_LABEL", "REMOVE_LABEL"] },
+      writeAdapter: writeAdapter(calls)
+    },
+    async () => snapshot([{ number: 6, title: "Ready", labels: ["codex-ready"], eventId: "issue:6:ready" }])
+  )) as WatchResult;
+
+  assert.equal(result.sessionStatus, "paused");
+  assert.equal(result.audits[0]?.outcome, "HUMAN");
+  assert.equal(result.audits[0]?.reason, "GIT_WRITE_REPOSITORY_REQUIRED");
+  assert.deepEqual(calls, []);
+});
+
 test("write-enabled claim transition stops when first label step fails", async () => {
   const stateFile = await tempStateFile();
   const writeStateFile = await tempStateFile();
@@ -389,6 +419,7 @@ test("write-enabled claim transition stops when first label step fails", async (
       labels,
       providerName: "mock-live",
       repository: "example/repo",
+      configuredWriteRepository: "example/repo",
       stateFilePath: stateFile,
       writeStateFilePath: writeStateFile,
       maxCycles: 1,
@@ -415,6 +446,7 @@ test("write-enabled claim transition resumes after second label step failure", a
       labels,
       providerName: "mock-live",
       repository: "example/repo",
+      configuredWriteRepository: "example/repo",
       stateFilePath: stateFile,
       writeStateFilePath: writeStateFile,
       maxCycles: 1,
@@ -426,11 +458,15 @@ test("write-enabled claim transition resumes after second label step failure", a
     async () => ready
   )) as WatchResult;
   const secondCalls: string[] = [];
+  const realisticPostPartial = snapshot([
+    { number: 6, title: "Ready", labels: ["codex-ready", "codex-in-progress"], eventId: "issue:6:ready" }
+  ]);
   const second = (await runWatchWithProvider(
     {
       labels,
       providerName: "mock-live",
       repository: "example/repo",
+      configuredWriteRepository: "example/repo",
       stateFilePath: stateFile,
       writeStateFilePath: writeStateFile,
       maxCycles: 1,
@@ -439,13 +475,125 @@ test("write-enabled claim transition resumes after second label step failure", a
       mutationPolicy: { enabled: true, allowed_actions: ["ADD_LABEL", "REMOVE_LABEL"] },
       writeAdapter: writeAdapter(secondCalls)
     },
-    async () => ready
+    async () => realisticPostPartial
   )) as WatchResult;
 
   assert.deepEqual(firstCalls, ["add:6:codex-in-progress", "remove:6:codex-ready"]);
   assert.equal(first.writeResults[0]?.status, "succeeded");
   assert.equal(first.writeResults[1]?.status, "failed");
   assert.deepEqual(secondCalls, ["remove:6:codex-ready"]);
-  assert.equal(second.writeResults[0]?.status, "skipped");
-  assert.equal(second.writeResults[1]?.status, "succeeded");
+  assert.equal(second.writeResults.length, 1);
+  assert.equal(second.writeResults[0]?.eventId, "issue:6:ready:remove-ready");
+  assert.equal(second.writeResults[0]?.status, "succeeded");
+  assert.equal(second.sessionStatus, "active");
+  assert.equal(second.audits.length, 0);
+});
+
+test("write-enabled review-ready transition resumes pending in-progress removal", async () => {
+  const stateFile = await tempStateFile();
+  const writeStateFile = await tempStateFile();
+  await writeFile(
+    writeStateFile,
+    `${JSON.stringify(
+      {
+        handledWriteEvents: {
+          "issue:6:review-ready:add-review-ready": {
+            eventId: "issue:6:review-ready:add-review-ready",
+            action: "MARK_REVIEW_READY",
+            status: "succeeded",
+            diagnostics: []
+          },
+          "issue:6:review-ready:remove-in-progress": {
+            eventId: "issue:6:review-ready:remove-in-progress",
+            action: "MARK_REVIEW_READY",
+            status: "failed",
+            diagnostics: ["remove failed"]
+          }
+        }
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+  const calls: string[] = [];
+  const result = (await runWatchWithProvider(
+    {
+      labels,
+      providerName: "mock-live",
+      repository: "example/repo",
+      configuredWriteRepository: "example/repo",
+      stateFilePath: stateFile,
+      writeStateFilePath: writeStateFile,
+      maxCycles: 1,
+      intervalMs: 0,
+      executeWrites: true,
+      mutationPolicy: { enabled: true, allowed_actions: ["REMOVE_LABEL"] },
+      writeAdapter: writeAdapter(calls)
+    },
+    async () => snapshot([
+      { number: 6, title: "Ready for review", labels: ["codex-in-progress", "chat-review-ready"], eventId: "issue:6:review-ready" }
+    ])
+  )) as WatchResult;
+
+  assert.deepEqual(calls, ["remove:6:codex-in-progress"]);
+  assert.equal(result.writeResults[0]?.eventId, "issue:6:review-ready:remove-in-progress");
+  assert.equal(result.writeResults[0]?.status, "succeeded");
+  assert.equal(result.audits.length, 0);
+});
+
+test("failed pending transition retry remains auditable and does not falsely advance", async () => {
+  const stateFile = await tempStateFile();
+  const writeStateFile = await tempStateFile();
+  await writeFile(
+    writeStateFile,
+    `${JSON.stringify(
+      {
+        handledWriteEvents: {
+          "issue:6:ready:add-in-progress": {
+            eventId: "issue:6:ready:add-in-progress",
+            action: "ADD_LABEL",
+            status: "succeeded",
+            diagnostics: []
+          },
+          "issue:6:ready:remove-ready": {
+            eventId: "issue:6:ready:remove-ready",
+            action: "REMOVE_LABEL",
+            status: "failed",
+            diagnostics: ["remove failed"]
+          }
+        }
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+  const calls: string[] = [];
+  const result = (await runWatchWithProvider(
+    {
+      labels,
+      providerName: "mock-live",
+      repository: "example/repo",
+      configuredWriteRepository: "example/repo",
+      stateFilePath: stateFile,
+      writeStateFilePath: writeStateFile,
+      maxCycles: 1,
+      intervalMs: 0,
+      executeWrites: true,
+      mutationPolicy: { enabled: true, allowed_actions: ["REMOVE_LABEL"] },
+      writeAdapter: writeAdapter(calls, { remove: true })
+    },
+    async () => snapshot([
+      { number: 6, title: "Ready", labels: ["codex-ready", "codex-in-progress"], eventId: "issue:6:ready" }
+    ])
+  )) as WatchResult;
+  const persisted = JSON.parse(await readFile(writeStateFile, "utf8")) as {
+    handledWriteEvents: Record<string, { status: string; diagnostics: string[] }>;
+  };
+
+  assert.deepEqual(calls, ["remove:6:codex-ready"]);
+  assert.equal(result.writeResults[0]?.status, "failed");
+  assert.equal(persisted.handledWriteEvents["issue:6:ready:remove-ready"]?.status, "failed");
+  assert.deepEqual(persisted.handledWriteEvents["issue:6:ready:remove-ready"]?.diagnostics, ["remove failed"]);
 });

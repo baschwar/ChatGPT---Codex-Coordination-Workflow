@@ -1,6 +1,6 @@
 # Project Status
 
-Status: Beta 4 in progress for issue #9.
+Status: Post-Beta 3 write-safety review-ready for issue #11.
 
 Completed:
 
@@ -32,6 +32,8 @@ Completed:
 - Read-only `discover` CLI command
 - Deterministic issue/PR association for explicit references and branch conventions
 - Review-ready, correction-continuation, check-state, governance-file, and non-actionable artifact discovery
+- Write-enabled watch fail-closed guard for missing or mismatched configured repository
+- Restart recovery for incomplete governed label transitions from realistic GitHub label state
 
 Not started:
 
