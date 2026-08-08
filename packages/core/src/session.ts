@@ -10,6 +10,7 @@ export interface WorkflowIssue {
   title: string;
   labels: string[];
   eventId?: string;
+  nonActionable?: boolean;
   relatedPullRequests?: RelatedPullRequest[];
   hasCodingCorrectionRequest?: boolean;
 }

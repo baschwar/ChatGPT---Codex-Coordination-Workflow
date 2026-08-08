@@ -1,6 +1,6 @@
 # Project Status
 
-Status: Beta 2 review-ready for issue #3 on PR #4.
+Status: Beta 3 review-ready for issue #6.
 
 Completed:
 
@@ -24,13 +24,16 @@ Completed:
 - SSH-only local worker Git transport setup check
 - Repository-neutral meaningful-event identity persisted across watch cycles
 - Quiet NPF actor routing with no worker/thinker invocation
+- Default-deny GitHub mutation policy configuration
+- Narrow GitHub write adapter/action surface for issues, labels, comments, and issue state
+- Approved directive-to-issue write path with dry-run and idempotent write-event persistence
+- Write-enabled watch action execution for configured routine claim-label transitions
 
 Not started:
 
 - MCP server implementation
 - Test-repository integration
 - CDW Studio integration
-- GitHub write operations
 - Real launchd installation
 
 Constraints:
@@ -41,3 +44,4 @@ Constraints:
 - No automatic manual or physical validation completion.
 - No automatic workflow-label creation.
 - CDW Studio remains an example configuration only until explicitly approved.
+- GitHub writes are disabled unless repository configuration allows the exact action.

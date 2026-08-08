@@ -2,6 +2,12 @@ import path from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { loadProjectConfig } from "../../../packages/config/src/load.js";
 import {
+  actionsForCycleDecision,
+  executeCoordinatorAction,
+  type ActionExecutionResult,
+  type MutationPolicy
+} from "../../../packages/core/src/actions.js";
+import {
   createCycleAuditEvent,
   createDurableSessionState,
   createSessionConfig,
@@ -14,7 +20,10 @@ import {
   type WorkflowRepositorySnapshot
 } from "../../../packages/core/src/session.js";
 import type { TaskWorkflowLabels } from "../../../packages/core/src/state.js";
+import type { GitHubWriteAdapter } from "../../../packages/github-adapter/src/types.js";
+import { createGhWriteAdapter } from "./github-write-adapter.js";
 import { createGithubSnapshot, GithubSnapshotError } from "./github-dry-run.js";
+import { defaultWriteStateFile, loadWriteState, saveWriteState } from "./directive-create.js";
 
 export interface FixtureWatchOptions {
   repoRoot: string;
@@ -24,6 +33,8 @@ export interface FixtureWatchOptions {
   npfPauseThreshold?: number;
   stateFilePath?: string;
   resume?: boolean;
+  executeWrites?: boolean;
+  writeStateFilePath?: string;
 }
 
 export interface GithubWatchOptions {
@@ -35,6 +46,8 @@ export interface GithubWatchOptions {
   npfPauseThreshold?: number;
   stateFilePath?: string;
   resume?: boolean;
+  executeWrites?: boolean;
+  writeStateFilePath?: string;
 }
 
 export interface ProviderWatchOptions {
@@ -48,6 +61,11 @@ export interface ProviderWatchOptions {
   npfPauseThreshold?: number;
   inactivityTimeoutMinutes?: number;
   resume?: boolean;
+  executeWrites?: boolean;
+  mutationPolicy?: MutationPolicy;
+  configuredWriteRepository?: string;
+  writeStateFilePath?: string;
+  writeAdapter?: GitHubWriteAdapter;
 }
 
 export type SnapshotProvider = (cycleIndex: number) => Promise<WorkflowRepositorySnapshot>;
@@ -159,7 +177,9 @@ export async function runWatchWithProvider(options: ProviderWatchOptions, provid
   const maxCycles = options.maxCycles ?? Number.POSITIVE_INFINITY;
   const intervalMs = options.intervalMs ?? 0;
   const audits: CycleAuditEvent[] = [];
+  const writeResults: ActionExecutionResult[] = [];
   let state = await loadSessionState(options.stateFilePath);
+  let writeState = options.writeStateFilePath ? await loadWriteState(options.writeStateFilePath) : undefined;
 
   if (options.repository && state.repository === undefined) {
     state = createDurableSessionState({ repository: options.repository, inactivityTimeoutMinutes });
@@ -186,12 +206,53 @@ export async function runWatchWithProvider(options: ProviderWatchOptions, provid
     };
   }
 
+  if (options.executeWrites && options.repository && options.configuredWriteRepository && options.repository !== options.configuredWriteRepository) {
+    const decision = createHumanSetupDecision(options.repository, "GIT_WRITE_REPOSITORY_MISMATCH", [
+      `Write-enabled watch target ${options.repository} does not match configured repository ${options.configuredWriteRepository}.`
+    ]);
+    const nextState: SessionState = { consecutiveNpf: state.consecutiveNpf, status: "paused" };
+    audits.push(createCycleAuditEvent(decision, state, nextState, true));
+    state = nextState;
+    await saveSessionState(options.stateFilePath, state);
+
+    return {
+      mode: "READ ONLY / DRY RUN",
+      provider: options.providerName,
+      cyclesRun: audits.length,
+      sessionStatus: state.status,
+      consecutiveNpf: state.consecutiveNpf,
+      stateFile: options.stateFilePath ?? null,
+      writeStateFile: options.writeStateFilePath ?? null,
+      writeResults,
+      audits
+    };
+  }
+
   for (let index = 0; index < maxCycles && state.status === "active"; index += 1) {
     try {
       const snapshot = await provider(index);
       const result = runCycle(snapshot, options.labels, state, sessionConfig, true);
       state = result.state;
       audits.push(result.audit);
+
+      if (options.executeWrites && writeState && options.writeAdapter) {
+        for (const action of actionsForCycleDecision({ decision: result.decision, labels: options.labels })) {
+          const actionOptions = {
+            action,
+            state: writeState,
+            adapter: options.writeAdapter
+          };
+          const executed = await executeCoordinatorAction(
+            options.mutationPolicy ? { ...actionOptions, policy: options.mutationPolicy } : actionOptions
+          );
+          writeState = executed.state;
+          writeResults.push(...executed.results);
+          await saveWriteState(options.writeStateFilePath as string, writeState);
+          if (executed.results.some((writeResult) => writeResult.status === "failed")) {
+            break;
+          }
+        }
+      }
     } catch (error) {
       if (!(error instanceof GithubSnapshotError)) {
         throw error;
@@ -217,6 +278,8 @@ export async function runWatchWithProvider(options: ProviderWatchOptions, provid
     sessionStatus: state.status,
     consecutiveNpf: state.consecutiveNpf,
     stateFile: options.stateFilePath ?? null,
+    writeStateFile: options.writeStateFilePath ?? null,
+    writeResults,
     audits
   };
 }
@@ -246,6 +309,12 @@ export async function runFixtureWatch(options: FixtureWatchOptions): Promise<obj
   if (options.resume !== undefined) {
     providerOptions.resume = options.resume;
   }
+  if (options.executeWrites !== undefined) {
+    providerOptions.executeWrites = options.executeWrites;
+  }
+  if (options.writeStateFilePath !== undefined) {
+    providerOptions.writeStateFilePath = options.writeStateFilePath;
+  }
 
   return runWatchWithProvider(
     providerOptions,
@@ -264,6 +333,7 @@ export async function runFixtureWatch(options: FixtureWatchOptions): Promise<obj
 export async function runGithubWatch(options: GithubWatchOptions): Promise<object> {
   const { config } = await loadProjectConfig(options.repoRoot);
   const stateFilePath = options.stateFilePath ?? defaultStateFilePath(options.repoRoot);
+  const writeStateFilePath = options.writeStateFilePath ?? defaultWriteStateFile(options.repoRoot);
   const providerOptions: ProviderWatchOptions = {
     labels: config.labels,
     providerName: "github",
@@ -271,8 +341,16 @@ export async function runGithubWatch(options: GithubWatchOptions): Promise<objec
     stateFilePath,
     intervalMs: options.intervalMs ?? config.polling.interval_minutes * 60 * 1000,
     pollIntervalMinutes: config.polling.interval_minutes,
-    inactivityTimeoutMinutes: config.polling.inactivity_timeout_minutes
+    inactivityTimeoutMinutes: config.polling.inactivity_timeout_minutes,
+    writeStateFilePath,
+    writeAdapter: createGhWriteAdapter()
   };
+  if (config.github_writes) {
+    providerOptions.mutationPolicy = config.github_writes;
+  }
+  if (config.project.repo) {
+    providerOptions.configuredWriteRepository = config.project.repo;
+  }
   const snapshotOptions = { repository: options.repository };
 
   if (options.maxCycles !== undefined) {
@@ -283,6 +361,9 @@ export async function runGithubWatch(options: GithubWatchOptions): Promise<objec
   }
   if (options.resume !== undefined) {
     providerOptions.resume = options.resume;
+  }
+  if (options.executeWrites !== undefined) {
+    providerOptions.executeWrites = options.executeWrites;
   }
 
   return runWatchWithProvider(

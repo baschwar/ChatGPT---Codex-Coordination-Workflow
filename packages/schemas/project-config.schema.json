@@ -61,6 +61,23 @@
         }
       }
     },
+    "github_writes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "allowed_actions"],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "allowed_actions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/writeAction"
+          }
+        }
+      }
+    },
     "governance": {
       "type": "object",
       "additionalProperties": false,
@@ -136,6 +153,17 @@
     "gateMode": {
       "type": "string",
       "enum": ["explicit", "disabled"]
+    },
+    "writeAction": {
+      "type": "string",
+      "enum": [
+        "CREATE_ISSUE",
+        "ADD_LABEL",
+        "REMOVE_LABEL",
+        "POST_HANDOFF_COMMENT",
+        "MARK_REVIEW_READY",
+        "UPDATE_ISSUE_STATE"
+      ]
     },
     "directiveSection": {
       "type": "string",

@@ -1,0 +1,45 @@
+{
+  "objective": "[BETA 3 LIVE SMOKE] Directive-to-issue idempotency test",
+  "background": "<!-- coordinator:non-actionable-artifact -->\n\nIssue #6 requires a bounded live write smoke test in the coordinator repository before any CDW integration.",
+  "approvedScope": [
+    "Create one clearly marked GitHub issue through the governed directive-to-issue path.",
+    "Apply the configured ready label as part of the issue creation flow.",
+    "Replay the same event ID to prove the coordinator does not create a duplicate issue."
+  ],
+  "constraints": [
+    "This is Beta 3 test data for the coordinator repository only.",
+    "Do not mutate CDW.",
+    "Do not merge pull requests, deploy, or invoke ChatGPT/Codex actors."
+  ],
+  "acceptanceCriteria": [
+    "The first run creates one issue with the configured ready label.",
+    "The second run with the same event ID reports the event as already handled.",
+    "The write-event ledger records the created issue URL and issue number."
+  ],
+  "requiredAutomatedTests": [
+    "Run npm run typecheck.",
+    "Run npm test.",
+    "Run npm run coordinator -- validate.",
+    "Run git diff --check."
+  ],
+  "requiredManualTests": [
+    "Inspect the created GitHub issue as live smoke-test evidence."
+  ],
+  "documentationRequirements": [
+    "Report the created test artifact in the Issue #6 completion report."
+  ],
+  "exclusions": [
+    "Do not implement the smoke-test issue as product work.",
+    "Do not delete audit evidence automatically."
+  ],
+  "dependencies": [
+    "GitHub CLI authentication with permission to create issues in this repository."
+  ],
+  "validationRequirements": [
+    "The first and replay command outputs must be captured in the completion report."
+  ],
+  "humanApprovalGates": [
+    "This directive is approved only for the bounded Beta 3 live smoke test."
+  ],
+  "sourceReference": "Issue #6 live write smoke test."
+}

@@ -39,6 +39,7 @@ export interface TaskPickupInput {
   labels: string[];
   relatedPullRequests?: RelatedPullRequest[];
   hasCodingCorrectionRequest?: boolean;
+  nonActionable?: boolean;
 }
 
 export type TaskPickupAction = "claim-and-branch" | "resume-open-pr" | "resume-correction" | "wait";
@@ -52,6 +53,7 @@ export interface TaskPickupDecision {
     | "manual-validation-awaiting-human"
     | "manual-validation-coding-correction"
     | "chat-review-awaiting-review"
+    | "non-actionable-artifact"
     | "not-in-implementation-queue";
   pullRequest?: RelatedPullRequest;
 }
@@ -80,6 +82,10 @@ export const plannedStateTransitions: StateTransition[] = [
 ];
 
 export function decideTaskPickup(input: TaskPickupInput, labels: TaskWorkflowLabels): TaskPickupDecision {
+  if (input.nonActionable) {
+    return { action: "wait", reason: "non-actionable-artifact" };
+  }
+
   const issueLabels = new Set(input.labels);
   const openPullRequest = input.relatedPullRequests?.find((pullRequest) => pullRequest.state === "open");
 

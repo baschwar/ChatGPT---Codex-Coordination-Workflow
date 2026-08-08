@@ -14,6 +14,7 @@ interface GhLabel {
 interface GhIssue {
   number: number;
   title: string;
+  body?: string;
   updatedAt?: string;
   labels: GhLabel[];
 }
@@ -98,6 +99,14 @@ function eventId(parts: string[]): string {
   return parts.join("|");
 }
 
+function isNonActionableArtifact(body: string | undefined): boolean {
+  const text = body ?? "";
+  return (
+    /<!--\s*coordinator:non-actionable-artifact\s*-->/i.test(text) ||
+    /\bDo not implement the smoke-test issue as product work\./i.test(text)
+  );
+}
+
 export interface GithubDryRunOptions {
   repoRoot: string;
   repository: string;
@@ -126,8 +135,8 @@ export async function createGithubSnapshot(options: GithubSnapshotOptions): Prom
   ])) as GhPullRequest[];
 
   const issueArgs = options.issueNumber
-    ? ["issue", "view", String(options.issueNumber), "--repo", options.repository, "--json", "number,title,updatedAt,labels"]
-    : ["issue", "list", "--repo", options.repository, "--state", "open", "--json", "number,title,updatedAt,labels"];
+    ? ["issue", "view", String(options.issueNumber), "--repo", options.repository, "--json", "number,title,body,updatedAt,labels"]
+    : ["issue", "list", "--repo", options.repository, "--state", "open", "--json", "number,title,body,updatedAt,labels"];
   const issueData = await ghJson(issueArgs);
   const issues = (Array.isArray(issueData) ? issueData : [issueData]) as GhIssue[];
   const workflowIssues: WorkflowIssue[] = issues.map((issue) => {
@@ -159,6 +168,10 @@ export async function createGithubSnapshot(options: GithubSnapshotOptions): Prom
         `prs:${relatedPullRequests.map((pullRequest) => pullRequest.eventId ?? "unknown").sort().join(",")}`
       ])
     };
+
+    if (isNonActionableArtifact(issue.body)) {
+      workflowIssue.nonActionable = true;
+    }
 
     if (relatedPullRequests.length > 0) {
       workflowIssue.relatedPullRequests = relatedPullRequests;
