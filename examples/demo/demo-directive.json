@@ -1,0 +1,17 @@
+{
+  "objective": "Coordinator demo task",
+  "context": "Safe first-run demo artifact only. Do not use for production pickup.",
+  "requested_by": "demo-user",
+  "approval": {
+    "source": "fixture",
+    "approved_at": "2026-08-08T00:00:00Z"
+  },
+  "requirements": [
+    "Add a short line to examples/demo/DEMO_OUTPUT.md confirming the coordinator demo reached the implementation stage.",
+    "Keep the demo artifact marked as non-production."
+  ],
+  "validation": [
+    "npm run coordinator -- demo --fixture --json",
+    "npm test"
+  ]
+}

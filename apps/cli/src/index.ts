@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createDirectiveIssue } from "./directive-create.js";
+import { runDemo } from "./demo.js";
 import { formatDiscoveryResult, githubDiscover } from "./github-discovery.js";
 import { githubDryRun } from "./github-dry-run.js";
 import type { GithubDryRunOptions } from "./github-dry-run.js";
@@ -11,7 +12,7 @@ import { runFixtureWatch, runGithubWatch } from "./watch-runner.js";
 import type { FixtureWatchOptions, GithubWatchOptions } from "./watch-runner.js";
 import { loadProjectConfig } from "../../../packages/config/src/load.js";
 
-export type CliCommand = "get-project-context" | "validate" | "preview-directive" | "directive" | "session" | "dry-run" | "discover" | "run";
+export type CliCommand = "get-project-context" | "validate" | "preview-directive" | "directive" | "session" | "dry-run" | "discover" | "run" | "demo";
 
 export const plannedCliCommands: CliCommand[] = [
   "get-project-context",
@@ -21,7 +22,8 @@ export const plannedCliCommands: CliCommand[] = [
   "session",
   "dry-run",
   "discover",
-  "run"
+  "run",
+  "demo"
 ];
 
 function readOption(args: string[], name: string): string | undefined {
@@ -213,6 +215,42 @@ async function main(args: string[]): Promise<void> {
     }
 
     process.stdout.write(formatDiscoveryResult(result));
+    return;
+  }
+
+  if (command === "demo") {
+    const repoRoot = readOption(rest, "--repo-root") ?? process.cwd();
+    const repository = readOption(rest, "--repo");
+    const approvalText = readOption(rest, "--approval");
+    const json = rest.includes("--json");
+    const result = await runDemo({
+      repoRoot,
+      fixture: rest.includes("--fixture"),
+      reset: rest.includes("--reset"),
+      executeWrites: rest.includes("--execute-writes"),
+      resume: rest.includes("--resume"),
+      ...(approvalText ? { approvalText } : {}),
+      ...(repository ? { repository } : {})
+    });
+
+    if (json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      for (const step of result.steps) {
+        console.log(`[${step.index}/${Math.max(result.steps.length, 1)}] ${step.title} -> ${step.nextActor}`);
+        console.log(`  ${step.summary}`);
+      }
+      for (const diagnostic of result.diagnostics) {
+        console.log(`! ${diagnostic}`);
+      }
+      if (result.steps.length === 0) {
+        console.log(result.diagnostics.join("\n") || "Demo reset complete.");
+      }
+    }
+
+    if (!result.valid) {
+      process.exitCode = 1;
+    }
     return;
   }
 

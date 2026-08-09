@@ -130,8 +130,8 @@ interface Candidate {
   result: RepositoryDiscoveryResult;
 }
 
-const nonActionableMarker = /<!--\s*coordinator:non-actionable-artifact\s*-->|\bDo not implement the smoke-test issue as product work\./i;
-const correctionPattern = /\b(CHANGES_REQUESTED|changes requested|requested changes|requested corrections|corrections|resume PR|continue beta|continue implementation|coding correction)\b/i;
+const nonActionableMarker = /<!--\s*coordinator:(?:non-actionable-artifact|demo-artifact)\s*-->|\bDo not implement the smoke-test issue as product work\./i;
+const correctionPattern = /\b(CHANGES_REQUESTED|changes requested|requested changes|correction required|corrections required|requested corrections|resume PR|continue beta(?:\s+\d+)?\s+corrections?|continue implementation|coding correction)\b/i;
 const reviewReadyPattern = /\bCHAT REVIEW READY\b/i;
 
 type WorkflowEventKind = "correction" | "review-ready";
@@ -340,7 +340,18 @@ function isCorrectionComment(comment: DiscoveryComment): boolean {
   return correctionPattern.test(comment.body);
 }
 
-function correctionEvents(pullRequest: DiscoveryPullRequest): WorkflowEvent[] {
+function correctionEvents(issue: DiscoveryIssue | undefined, pullRequest: DiscoveryPullRequest): WorkflowEvent[] {
+  const issueEvents = issue ? (issue.comments ?? [])
+    .filter(isCorrectionComment)
+    .map((comment) => workflowEvent({
+      kind: "correction",
+      id: comment.id ?? `issue:${issue.number}:comment:${comment.updatedAt ?? comment.createdAt ?? "unknown"}`,
+      source: "comment",
+      summary: "Issue comment requested Codex continuation",
+      createdAt: comment.createdAt,
+      updatedAt: comment.updatedAt,
+      url: comment.url
+    })) : [];
   const reviewEvents = (pullRequest.reviews ?? [])
     .filter((review) => review.state.toUpperCase() === "CHANGES_REQUESTED" || correctionPattern.test(review.body ?? ""))
     .map((review) => workflowEvent({
@@ -364,7 +375,7 @@ function correctionEvents(pullRequest: DiscoveryPullRequest): WorkflowEvent[] {
       url: comment.url
     }));
 
-  return [...reviewEvents, ...commentEvents];
+  return [...issueEvents, ...reviewEvents, ...commentEvents];
 }
 
 function reviewReadyEvents(issue: DiscoveryIssue | undefined, pullRequest: DiscoveryPullRequest | undefined): WorkflowEvent[] {
@@ -395,7 +406,7 @@ function reviewReadyEvents(issue: DiscoveryIssue | undefined, pullRequest: Disco
 }
 
 function latestWorkflowEvent(issue: DiscoveryIssue | undefined, pullRequest: DiscoveryPullRequest): WorkflowEvent | undefined {
-  return latestByTime([...correctionEvents(pullRequest), ...reviewReadyEvents(issue, pullRequest)]);
+  return latestByTime([...correctionEvents(issue, pullRequest), ...reviewReadyEvents(issue, pullRequest)]);
 }
 
 function resultEventId(kind: DiscoveryResultKind, repository: string, issue: DiscoveryIssue | undefined, pullRequest: DiscoveryPullRequest | undefined, event: DiscoveryEventSummary | undefined): string {

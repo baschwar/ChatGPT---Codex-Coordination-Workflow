@@ -136,6 +136,78 @@ test("newer CHANGES_REQUESTED review beats an older CHAT REVIEW READY handoff", 
   assert.equal(result.latestEvent?.id, "newer-review");
 });
 
+test("newer CORRECTION REQUIRED comment beats older CHAT REVIEW READY handoff", () => {
+  const correction = discoverRepositoryWork(snapshot({
+    issues: [
+      {
+        number: 12,
+        title: "Beta 5",
+        labels: ["chat-review-ready"],
+        comments: [
+          {
+            id: "newer-issue-correction",
+            body: "BETA 5 ACCEPTANCE ADDENDUM\n\nCORRECTION REQUIRED: add focused discovery coverage.",
+            updatedAt: "2026-08-09T00:45:00Z"
+          }
+        ]
+      }
+    ],
+    pullRequests: [
+      {
+        number: 14,
+        title: "Beta 5 PR",
+        state: "OPEN",
+        headRefName: "codex/issue-12-beta-5-demo",
+        closingIssueNumbers: [12],
+        comments: [
+          {
+            id: "older-handoff",
+            body: "CHAT REVIEW READY",
+            updatedAt: "2026-08-09T00:10:00Z"
+          }
+        ]
+      }
+    ]
+  }));
+  const reviewReady = discoverRepositoryWork(snapshot({
+    issues: [
+      {
+        number: 12,
+        title: "Beta 5",
+        labels: ["chat-review-ready"],
+        comments: [
+          {
+            id: "older-issue-correction",
+            body: "BETA 5 ACCEPTANCE ADDENDUM\n\nCORRECTION REQUIRED: add focused discovery coverage.",
+            updatedAt: "2026-08-09T00:45:00Z"
+          },
+          {
+            id: "newer-issue-handoff",
+            body: "CHAT REVIEW READY\n\nDiscovery correction implemented.",
+            updatedAt: "2026-08-09T01:00:00Z"
+          }
+        ]
+      }
+    ],
+    pullRequests: [
+      {
+        number: 14,
+        title: "Beta 5 PR",
+        state: "OPEN",
+        headRefName: "codex/issue-12-beta-5-demo",
+        closingIssueNumbers: [12]
+      }
+    ]
+  }));
+
+  assert.equal(correction.kind, "resume-existing-pr");
+  assert.equal(correction.nextActor, "worker");
+  assert.equal(correction.latestEvent?.id, "newer-issue-correction");
+  assert.equal(reviewReady.kind, "chat-review-ready");
+  assert.equal(reviewReady.nextActor, "thinker");
+  assert.equal(reviewReady.latestEvent?.id, "newer-issue-handoff");
+});
+
 test("CHAT REVIEW READY completion comment mentioning corrections is not a correction", () => {
   const result = discoverRepositoryWork(snapshot({
     issues: [{ number: 6, title: "Beta 3", labels: ["codex-in-progress"] }],
@@ -159,6 +231,31 @@ test("CHAT REVIEW READY completion comment mentioning corrections is not a corre
   assert.equal(result.kind, "chat-review-ready");
   assert.equal(result.nextActor, "thinker");
   assert.equal(result.latestEvent?.id, "handoff");
+});
+
+test("benign correction completion text without handoff is not a correction", () => {
+  const result = discoverRepositoryWork(snapshot({
+    issues: [{ number: 6, title: "Beta 3", labels: ["chat-review-ready"] }],
+    pullRequests: [
+      {
+        number: 8,
+        title: "Beta 3 PR",
+        state: "OPEN",
+        headRefName: "codex/issue-6",
+        comments: [
+          {
+            id: "benign",
+            body: "All corrections addressed in the latest commit.",
+            updatedAt: "2026-08-08T18:30:00Z"
+          }
+        ]
+      }
+    ]
+  }));
+
+  assert.equal(result.kind, "chat-review-ready");
+  assert.equal(result.nextActor, "thinker");
+  assert.notEqual(result.latestEvent?.id, "benign");
 });
 
 test("orphan PR discovery routes by latest meaningful workflow event", () => {
