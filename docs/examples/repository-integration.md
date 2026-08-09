@@ -17,6 +17,8 @@ To add the coordinator to a repository:
 13. Confirm replay/idempotency with the same event ID before trusting unattended writes.
 14. Run read-only discovery with `npm run coordinator -- discover --repo owner/repo --json`.
 
+Client repositories contain only their project-specific coordinator configuration and governance files. Do not copy coordinator packages, schemas, source files, or runtime internals into the client repository; validation reads `.github/chatgpt-coordinator.yml` from the client repo and reads schemas from the installed coordinator runtime.
+
 ## GitHub App, MCP Server, Custom App, Custom GPT
 
 A GitHub App grants scoped repository access and performs GitHub operations.

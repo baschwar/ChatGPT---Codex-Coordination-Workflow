@@ -62,6 +62,7 @@
 - Guarded live demo plan with explicit write opt-in
 - Demo artifact exclusion from normal pickup
 - Demo reset and first-run documentation
+- External client repository config/runtime schema resolution
 - Tool schemas
 - Authentication setup
 - Input validation

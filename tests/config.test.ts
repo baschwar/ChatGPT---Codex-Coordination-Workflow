@@ -8,6 +8,48 @@ import { loadProjectConfig, validateProjectConfig } from "../packages/config/src
 
 const repoRoot = process.cwd();
 
+function validExternalConfig(projectName = "External Client"): string {
+  return `version: 1
+
+project:
+  name: ${projectName}
+  repo: example/external-client
+
+roles:
+  thinker: chatgpt
+  worker: codex
+
+governance:
+  files:
+    - AGENTS.md
+    - PROJECT_STATUS.md
+
+labels:
+  implementation_ready: codex-ready
+  implementation_in_progress: codex-in-progress
+  manual_validation: manual-validation
+  review_ready: chat-review-ready
+  blocked: blocked
+  needs_human: needs-human-review
+
+polling:
+  interval_minutes: 10
+  inactivity_timeout_minutes: 60
+
+local_worker_transport:
+  git_protocol: ssh
+  https_fallback: disabled
+
+approval_gates:
+  create_implementation_issue: explicit
+  merge_pull_request: explicit
+  begin_next_milestone: explicit
+  complete_manual_validation: explicit
+  complete_physical_validation: explicit
+  close_implementation_task: explicit
+`;
+}
+
 test("parses and validates root project configuration", async () => {
   const result = await loadProjectConfig(repoRoot);
 
@@ -29,11 +71,22 @@ test("parses and validates root project configuration", async () => {
 test("rejects invalid project configuration", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "coordinator-config-"));
   await mkdir(path.join(tempRoot, ".github"), { recursive: true });
-  await mkdir(path.join(tempRoot, "packages", "schemas"), { recursive: true });
-  await writeFile(path.join(tempRoot, "packages", "schemas", "project-config.schema.json"), await import("node:fs/promises").then((fs) => fs.readFile(path.join(repoRoot, "packages", "schemas", "project-config.schema.json"), "utf8")));
   await writeFile(path.join(tempRoot, ".github", "chatgpt-coordinator.yml"), "version: 1\nproject:\n  name: Broken\n");
 
   await assert.rejects(loadProjectConfig(tempRoot), /Invalid coordinator config/);
+});
+
+test("loads external client config without coordinator source directories", async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), "coordinator-external-config-"));
+  await mkdir(path.join(tempRoot, ".github"), { recursive: true });
+  await writeFile(path.join(tempRoot, ".github", "chatgpt-coordinator.yml"), validExternalConfig("Fixture Client"));
+
+  const result = await loadProjectConfig(tempRoot);
+
+  assert.equal(result.path, path.join(tempRoot, ".github", "chatgpt-coordinator.yml"));
+  assert.equal(result.config.project.name, "Fixture Client");
+  assert.equal(result.config.project.repo, "example/external-client");
+  assert.equal(result.config.labels.implementation_ready, "codex-ready");
 });
 
 test("validates example repository configurations", async () => {
