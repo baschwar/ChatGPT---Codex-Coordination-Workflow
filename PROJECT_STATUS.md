@@ -1,6 +1,6 @@
 # Project Status
 
-Status: Beta 5 first-run coordinator demo review-ready for issue #12.
+Status: External client repository schema resolution review-ready for issue #15.
 
 Completed:
 
@@ -37,6 +37,7 @@ Completed:
 - First-run fixture demo command for safe workflow walkthroughs
 - Demo artifact marker excluded from normal production pickup
 - Demo reset helper and first-run walkthrough
+- External client repository config validation without client-side coordinator schemas or source files
 
 Not started:
 

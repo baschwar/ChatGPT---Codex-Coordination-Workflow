@@ -4,6 +4,8 @@ Participating repositories configure the coordinator with `.github/chatgpt-coord
 
 The configuration is repository-local and versioned. Core code must read labels, governance files, approval gates, and review inputs from this file rather than hard-coding project-specific behavior.
 
+Client repositories only need their own coordinator configuration and governance files. The coordinator reads `.github/chatgpt-coordinator.yml` from the supplied repository root, while schema validation uses the installed coordinator runtime rather than `packages/` files copied into the client repository.
+
 See [packages/schemas/project-config.schema.json](../packages/schemas/project-config.schema.json) for the current schema draft.
 
 ## Minimal Example
