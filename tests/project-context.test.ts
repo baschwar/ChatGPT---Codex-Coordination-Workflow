@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -24,11 +24,6 @@ test("loads read-only project context and governance file status", async () => {
 async function setupTempRepo(originUrl: string): Promise<string> {
   const repoRoot = await mkdtemp(path.join(os.tmpdir(), "coordinator-context-"));
   await mkdir(path.join(repoRoot, ".github"), { recursive: true });
-  await mkdir(path.join(repoRoot, "packages", "schemas"), { recursive: true });
-  await writeFile(
-    path.join(repoRoot, "packages", "schemas", "project-config.schema.json"),
-    await readFile(path.join(process.cwd(), "packages", "schemas", "project-config.schema.json"), "utf8")
-  );
   await writeFile(path.join(repoRoot, "AGENTS.md"), "# Agents\n");
   await writeFile(path.join(repoRoot, "PROJECT_STATUS.md"), "# Status\n");
   await writeFile(path.join(repoRoot, "ROADMAP.md"), "# Roadmap\n");
