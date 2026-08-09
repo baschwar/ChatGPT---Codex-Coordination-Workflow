@@ -38,6 +38,7 @@ npm run coordinator -- demo --fixture
 npm run coordinator -- demo --fixture --json
 npm run coordinator -- demo --fixture --resume --approval approved
 npm run coordinator -- demo --repo baschwar/ChatGPT---Codex-Coordination-Workflow --json
+npm run coordinator -- demo --repo baschwar/ChatGPT---Codex-Coordination-Workflow --execute-writes --json
 npm run coordinator -- demo --reset
 npm run coordinator -- dry-run --repo baschwar/ChatGPT---Codex-Coordination-Workflow --issue 1
 npm run coordinator -- run --watch --repo baschwar/ChatGPT---Codex-Coordination-Workflow --issue 1 --state-file /tmp/chatgpt-coordinator-live-watch-state.json --interval-ms 1000 --max-cycles 1

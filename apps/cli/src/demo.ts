@@ -15,8 +15,11 @@ import { discoverRepositoryWork, type RepositoryDiscoverySnapshot } from "../../
 import { createDurableSessionState, runCycle, type WorkflowRepositorySnapshot } from "../../../packages/core/src/session.js";
 import type { TaskWorkflowLabels } from "../../../packages/core/src/state.js";
 import type { GitHubWriteAdapter, GitHubWriteResult } from "../../../packages/github-adapter/src/types.js";
+import { createGhWriteAdapter } from "./github-write-adapter.js";
+import { loadWriteState, saveWriteState } from "./directive-create.js";
 
 export const demoArtifactMarker = "<!-- coordinator:demo-artifact -->";
+export const demoOutputBaseline = `${demoArtifactMarker}\n\nCoordinator demo ready. Run \`npm run coordinator -- demo --fixture\` to update this file.\n`;
 
 export interface DemoOptions {
   repoRoot: string;
@@ -27,6 +30,7 @@ export interface DemoOptions {
   json?: boolean;
   resume?: boolean;
   approvalText?: string;
+  adapter?: GitHubWriteAdapter;
 }
 
 export interface DemoStep {
@@ -70,6 +74,18 @@ function demoStateDir(repoRoot: string): string {
 
 function demoStatePath(repoRoot: string): string {
   return path.join(demoStateDir(repoRoot), "fixture-state.json");
+}
+
+function liveWriteStatePath(repoRoot: string): string {
+  return path.join(demoStateDir(repoRoot), "live-write-events.json");
+}
+
+function demoOutputPath(repoRoot: string): string {
+  return path.join(repoRoot, "examples", "demo", "DEMO_OUTPUT.md");
+}
+
+async function writeDemoOutput(repoRoot: string, body: string): Promise<void> {
+  await writeFile(demoOutputPath(repoRoot), body, "utf8");
 }
 
 function demoIssue(labels: string[], eventId: string): WorkflowRepositorySnapshot {
@@ -188,14 +204,15 @@ function discoverySnapshotFor(options: {
 export async function resetDemo(repoRoot: string): Promise<DemoResult> {
   const stateDir = demoStateDir(repoRoot);
   await rm(stateDir, { recursive: true, force: true });
+  await writeDemoOutput(repoRoot, demoOutputBaseline);
   return {
     mode: "reset",
     valid: true,
     demoMarker: demoArtifactMarker,
     steps: [],
     writeResults: [],
-    diagnostics: ["Removed local demo state."],
-    resetPaths: [stateDir],
+    diagnostics: ["Removed local demo state and restored demo output baseline."],
+    resetPaths: [stateDir, demoOutputPath(repoRoot)],
     limitations: []
   };
 }
@@ -255,6 +272,23 @@ async function resumeFixtureDemo(repoRoot: string, approvalText: string | undefi
     };
   }
 
+  if (persisted.currentStage === "complete") {
+    return {
+      mode: "fixture",
+      valid: true,
+      repository: "demo/local-fixture",
+      demoMarker: demoArtifactMarker,
+      steps: persisted.steps,
+      writeResults: persisted.writeResults,
+      diagnostics: ["Demo completion already recorded; replay made no durable changes."],
+      resetPaths: [demoStateDir(repoRoot), demoOutputPath(repoRoot)],
+      limitations: [
+        "Fixture resume records completion but does not merge a pull request.",
+        "Fixture mode does not wake ChatGPT Web or Codex actors."
+      ]
+    };
+  }
+
   const issue: DemoIssueState = { labels: ["manual-validation"], comments: [] };
   const calls: string[] = [];
   const adapter = demoAdapter(issue, calls);
@@ -298,7 +332,7 @@ async function resumeFixtureDemo(repoRoot: string, approvalText: string | undefi
     ...(approval.evidence ? { approvalEvidence: approval.evidence } : {})
   };
   await savePersistedDemoState(repoRoot, nextState);
-  await writeFile(path.join(repoRoot, "examples", "demo", "DEMO_OUTPUT.md"), `${demoArtifactMarker}\n\nCoordinator demo reached the corrected implementation stage.\n\nCoordinator demo recorded explicit resume completion.\n`, "utf8");
+  await writeDemoOutput(repoRoot, `${demoArtifactMarker}\n\nCoordinator demo reached the corrected implementation stage.\n\nCoordinator demo recorded explicit resume completion.\n`);
 
   return {
     mode: "fixture",
@@ -308,7 +342,7 @@ async function resumeFixtureDemo(repoRoot: string, approvalText: string | undefi
     steps,
     writeResults,
     diagnostics: [],
-    resetPaths: [demoStateDir(repoRoot), path.join(repoRoot, "examples", "demo", "DEMO_OUTPUT.md")],
+    resetPaths: [demoStateDir(repoRoot), demoOutputPath(repoRoot)],
     limitations: [
       "Fixture resume records completion but does not merge a pull request.",
       "Fixture mode does not wake ChatGPT Web or Codex actors."
@@ -382,7 +416,7 @@ export async function runFixtureDemo(repoRoot: string, options: Pick<DemoOptions
     }
   });
 
-  await writeFile(path.join(repoRoot, "examples", "demo", "DEMO_OUTPUT.md"), `${demoArtifactMarker}\n\nCoordinator demo reached the implementation stage.\n`, "utf8");
+  await writeDemoOutput(repoRoot, `${demoArtifactMarker}\n\nCoordinator demo reached the implementation stage.\n`);
   const handoff = await executeActions({
     actions: [{
       type: "MARK_REVIEW_READY",
@@ -428,7 +462,7 @@ export async function runFixtureDemo(repoRoot: string, options: Pick<DemoOptions
     }
   });
 
-  await writeFile(path.join(repoRoot, "examples", "demo", "DEMO_OUTPUT.md"), `${demoArtifactMarker}\n\nCoordinator demo reached the corrected implementation stage.\n`, "utf8");
+  await writeDemoOutput(repoRoot, `${demoArtifactMarker}\n\nCoordinator demo reached the corrected implementation stage.\n`);
   const corrected = discoverRepositoryWork(discoverySnapshotFor({
     labels,
     issueLabels: [labels.review_ready],
@@ -491,7 +525,7 @@ export async function runFixtureDemo(repoRoot: string, options: Pick<DemoOptions
     steps,
     writeResults,
     diagnostics: [],
-    resetPaths: [stateDir, path.join(repoRoot, "examples", "demo", "DEMO_OUTPUT.md")],
+    resetPaths: [stateDir, demoOutputPath(repoRoot)],
     limitations: [
       "Fixture mode does not wake ChatGPT Web or Codex actors.",
       "Default demo stops before merge and manual validation completion."
@@ -515,34 +549,116 @@ export async function runLiveDemoPlan(options: DemoOptions): Promise<DemoResult>
     diagnostics.push(`GIT_WRITE_REPOSITORY_MISMATCH: live demo target ${repository} does not match configured repository ${configuredRepository}.`);
   }
 
-  const valid = diagnostics.length === 0;
+  if (!options.executeWrites) {
+    const valid = diagnostics.length === 0;
+    return {
+      mode: "live-dry-run",
+      valid,
+      ...(repository ? { repository } : {}),
+      demoMarker: demoArtifactMarker,
+      steps: [
+        {
+          index: 1,
+          title: "Live demo dry run",
+          summary: "Live demo dry run describes the safe artifact path without writing to GitHub.",
+          nextActor: "human",
+          evidence: {
+            configuredRepository: configuredRepository ?? null,
+            requestedRepository: repository ?? null,
+            executeWrites: false,
+            marker: demoArtifactMarker
+          }
+        }
+      ],
+      writeResults: [],
+      diagnostics,
+      resetPaths: [demoStateDir(options.repoRoot)],
+      limitations: [
+        "Live demo does not fabricate ChatGPT Web or Codex actor wake-up.",
+        "Live write mode must use demo-marked artifacts and remains stopped before merge by default."
+      ]
+    };
+  }
+
+  if (diagnostics.length > 0 || !repository) {
+    return {
+      mode: "live-write",
+      valid: false,
+      ...(repository ? { repository } : {}),
+      demoMarker: demoArtifactMarker,
+      steps: [
+        {
+          index: 1,
+          title: "Live demo write gate",
+          summary: "Live demo writes are allowed only after exact repository match and explicit write opt-in.",
+          nextActor: "human",
+          evidence: {
+            configuredRepository: configuredRepository ?? null,
+            requestedRepository: repository ?? null,
+            executeWrites: true,
+            marker: demoArtifactMarker
+          }
+        }
+      ],
+      writeResults: [],
+      diagnostics,
+      resetPaths: [demoStateDir(options.repoRoot)],
+      limitations: [
+        "Live demo does not fabricate ChatGPT Web or Codex actor wake-up.",
+        "Live write mode must use demo-marked artifacts and remains stopped before merge by default."
+      ]
+    };
+  }
+
+  const eventId = `${repository}|demo:create-issue:first-run`;
+  const stateFilePath = liveWriteStatePath(options.repoRoot);
+  const state = await loadWriteState(stateFilePath);
+  const action: CoordinatorAction = {
+    type: "CREATE_ISSUE",
+    eventId,
+    repository,
+    title: "Coordinator demo artifact (non-production)",
+    body: `${demoArtifactMarker}\n\nThis issue was created by the guarded live coordinator demo. It is a non-production artifact and must not be picked up as normal implementation work.`,
+    labels: []
+  };
+  const actionOptions = {
+    action,
+    state,
+    adapter: options.adapter ?? createGhWriteAdapter()
+  };
+  const executed = await executeCoordinatorAction(
+    config.github_writes ? { ...actionOptions, policy: config.github_writes } : actionOptions
+  );
+  await saveWriteState(stateFilePath, executed.state);
+  const valid = executed.results.every((result) => result.status === "succeeded" || result.status === "skipped");
+
   return {
-    mode: options.executeWrites ? "live-write" : "live-dry-run",
+    mode: "live-write",
     valid,
-    ...(repository ? { repository } : {}),
+    repository,
     demoMarker: demoArtifactMarker,
     steps: [
       {
         index: 1,
-        title: options.executeWrites ? "Live demo write gate" : "Live demo dry run",
-        summary: options.executeWrites
-          ? "Live demo writes are allowed only after exact repository match and explicit write opt-in."
-          : "Live demo dry run describes the safe artifact path without writing to GitHub.",
-        nextActor: valid ? "human" : "human",
+        title: "Live demo write",
+        summary: "Explicit live write mode created or replayed one demo-marked non-production GitHub issue through the governed write adapter.",
+        nextActor: "human",
         evidence: {
-          configuredRepository: configuredRepository ?? null,
-          requestedRepository: repository ?? null,
-          executeWrites: options.executeWrites === true,
-          marker: demoArtifactMarker
+          configuredRepository,
+          requestedRepository: repository,
+          eventId,
+          action: "CREATE_ISSUE",
+          marker: demoArtifactMarker,
+          statuses: executed.results.map((result) => result.status)
         }
       }
     ],
-    writeResults: [],
+    writeResults: executed.results,
     diagnostics,
-    resetPaths: [demoStateDir(options.repoRoot)],
+    resetPaths: [demoStateDir(options.repoRoot), stateFilePath],
     limitations: [
       "Live demo does not fabricate ChatGPT Web or Codex actor wake-up.",
-      "Live write mode must use demo-marked artifacts and remains stopped before merge by default."
+      "Live write mode creates only a demo-marked issue and remains stopped before merge by default."
     ]
   };
 }

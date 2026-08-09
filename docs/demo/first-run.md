@@ -94,7 +94,7 @@ The coordinator demonstrates ownership routing. It does not fabricate actor wake
 
 ## Reset
 
-Reset local demo state:
+Reset local demo state and restore `examples/demo/DEMO_OUTPUT.md` to its baseline:
 
 ```sh
 npm run coordinator -- demo --reset

@@ -1,5 +1,3 @@
 <!-- coordinator:demo-artifact -->
 
-Coordinator demo reached the corrected implementation stage.
-
-Coordinator demo recorded explicit resume completion.
+Coordinator demo ready. Run `npm run coordinator -- demo --fixture` to update this file.
